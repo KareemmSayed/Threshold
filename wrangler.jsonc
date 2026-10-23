@@ -12,6 +12,7 @@
   // Refresh recent days, backfill history, and decode FIT files in small steps.
   "triggers": { "crons": ["*/10 * * * *"] },
   // Keep settings you change in the dashboard (TIMEZONE, PLAN, ...) when a new version deploys.
-  "keep_vars": true
-  // Secrets (set with `npx wrangler secret put <NAME>`): GARMIN_API_KEY, ACCESS_KEY.
+  "keep_vars": true,
+  // The Deploy to Cloudflare button asks for these when you deploy.
+  "secrets": { "required": ["GARMIN_API_KEY", "ACCESS_KEY"] }
 }
