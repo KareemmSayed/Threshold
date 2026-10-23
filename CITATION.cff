@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use or reference this software, please cite it as below."
+title: "Threshold: Garmin MCP Server"
+abstract: "Open-source, self-hosted Model Context Protocol server that connects Garmin Connect data to AI assistants and computes training and recovery analysis on Cloudflare Workers."
+authors:
+  - name: "Kareem Sayed"
+repository-code: "https://github.com/KareemmSayed/threshold"
+url: "https://kareemmsayed.github.io/threshold/"
+license: MIT
+version: 0.1.0
+date-released: "2026-10-23"
+keywords:
+  - garmin
+  - mcp
+  - model context protocol
+  - garmin connect
+  - claude
+  - chatgpt
+  - hrv
+  - training load
+  - cloudflare workers

@@ -2,25 +2,32 @@
   "name": "threshold",
   "version": "0.1.0",
   "private": true,
-  "description": "Your Garmin data, analyzed. A private MCP server for Claude, ChatGPT and every MCP client, on Cloudflare Workers.",
+  "description": "Garmin MCP server: connect Garmin Connect to Claude, ChatGPT and any AI assistant. Readiness, HRV, training load and FIT analysis, free on Cloudflare Workers.",
   "license": "MIT",
+  "homepage": "https://kareemmsayed.github.io/threshold/",
   "type": "module",
   "keywords": [
     "garmin",
+    "garmin-mcp",
     "mcp",
+    "mcp-server",
     "model-context-protocol",
-    "cloudflare-workers",
     "garmin-connect",
+    "garmin-api",
     "personal-api",
+    "claude",
+    "chatgpt",
     "hrv",
     "training-load",
     "fit",
-    "claude",
-    "chatgpt"
+    "cloudflare-workers",
+    "fitness",
+    "running",
+    "cycling"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KareemmSayed/Garmin-API.git"
+    "url": "git+https://github.com/KareemmSayed/threshold.git"
   },
   "engines": {
     "node": ">=20"

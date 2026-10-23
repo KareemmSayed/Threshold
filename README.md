@@ -1,21 +1,25 @@
 <div align="center">
 
-# Threshold
+# Threshold: Garmin MCP Server
 
-**Your Garmin data, analyzed.**
-A private MCP server that lets Claude, ChatGPT, Cursor and any other AI assistant answer questions about your training, sleep and recovery, with numbers computed by code, not guessed by the model.
+**Your Garmin data, analyzed by Claude, ChatGPT and any AI assistant.**
+An open-source Garmin MCP server on the official Garmin Personal API. It answers questions about your training, sleep, HRV and recovery, with numbers computed by code, not guessed by the model.
 
-[![CI](https://github.com/KareemmSayed/Garmin-API/actions/workflows/ci.yml/badge.svg)](https://github.com/KareemmSayed/Garmin-API/actions/workflows/ci.yml)
+[![CI](https://github.com/KareemmSayed/threshold/actions/workflows/ci.yml/badge.svg)](https://github.com/KareemmSayed/threshold/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Runs on Cloudflare Workers](https://img.shields.io/badge/runs%20on-Cloudflare%20Workers%20(free)-f38020)](https://developers.cloudflare.com/workers/)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Garmin-API)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/threshold)
+
+[Website](https://kareemmsayed.github.io/threshold/) · [Quick start](#quick-start-about-5-minutes) · [Connect your AI](#connect-your-ai) · [FAQ](#faq)
+
+<img src="docs/og.png" alt="Threshold, a Garmin MCP server for Claude, ChatGPT and any AI assistant" width="720">
 
 </div>
 
 > *"Am I recovered enough for intervals today?"* · *"Is my HRV trending down?"* · *"Am I ramping up too fast?"* · *"Break down this morning's run."* · *"What are my 5k and 10k bests this year?"* · *"Which months did I climb the most?"*
 
-Threshold runs on your own free Cloudflare account and talks to Garmin's official **Personal API** with your own key. No password, no scraping, no third-party service in between.
+**Threshold is a self-hosted [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that connects Garmin Connect to AI assistants.** It runs on your own free Cloudflare account and talks to Garmin's official **Personal API** with your own key. No password, no scraping, no third-party service in between. It works with Claude (web, desktop, iOS, Android), ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf and any MCP client.
 
 ## Why Threshold
 
@@ -66,7 +70,7 @@ openssl rand -base64 32
 <summary>Or deploy from the command line</summary>
 
 ```bash
-git clone https://github.com/KareemmSayed/Garmin-API.git threshold && cd threshold
+git clone https://github.com/KareemmSayed/threshold.git && cd threshold
 npm ci
 npx wrangler login
 npx wrangler deploy                      # creates the D1 database and KV namespace on first deploy
@@ -285,6 +289,38 @@ src/
 ```
 
 Contributions are welcome. Please open an issue first for larger changes.
+
+## FAQ
+
+### What is a Garmin MCP server?
+An MCP server exposes data and tools to AI assistants through the Model Context Protocol. A Garmin MCP server lets an assistant such as Claude or ChatGPT read your Garmin Connect data (activities, sleep, HRV, heart rate, stress, Body Battery, weight) and answer questions about it. Threshold also analyzes that data in code: readiness, training load, HRV baselines, best efforts and more.
+
+### How do I connect my Garmin to Claude?
+Deploy Threshold to Cloudflare (one click), then in Claude open Settings → Connectors → Add custom connector, paste your server's `/mcp` URL and sign in with your access key. It then works on claude.ai, Claude Desktop and the Claude iOS and Android apps. See [Connect your AI](#connect-your-ai).
+
+### How do I connect my Garmin to ChatGPT?
+Turn on Developer mode in ChatGPT (Settings → Apps & Connectors → Advanced), create a connector with your server's `/mcp` URL, choose OAuth, and enter your access key.
+
+### Does it need my Garmin password?
+No. It uses a Garmin Personal API key that you create in Garmin Connect and can revoke at any time. Older Garmin MCP servers log in with your password through the unofficial `garminconnect` library; Threshold does not.
+
+### Is it free?
+Yes. It is MIT-licensed and fits Cloudflare's Workers Free plan. The optional $5/month Workers Paid plan only makes the first history import faster.
+
+### Is my data private?
+Yes. You deploy it to your own Cloudflare account; your data never passes through this project. Only someone with your access key can connect an app, and GPS coordinates and personal identifiers are removed from responses by default.
+
+### What Garmin data can it read?
+Activities and their original FIT files, daily summaries (steps, calories, intensity minutes, floors), sleep and sleep stages, HRV, resting and all-day heart rate, stress, Body Battery, SpO2, respiration, weight and body composition, hydration, nutrition logs, menstrual cycle, fitness age, heart-rate zones and profile settings.
+
+### Can it see Training Readiness, Training Status or VO2 max?
+Garmin's Personal API does not return Training Readiness or Training Status, so Threshold computes its own readiness and training load with transparent rules. VO2 max comes from the activity list and is also decoded from each activity's FIT file, where Garmin keeps more precise values.
+
+### Can it change anything on my Garmin account?
+No. The Personal API is read-only, and so is Threshold.
+
+### Which Garmin watches work?
+Any device that syncs to Garmin Connect: Forerunner, Fenix, Epix, Enduro, Venu, Vivoactive, Instinct, Edge bike computers and more. Some metrics (HRV, Body Battery) need a watch that records them.
 
 ## Credits
 
