@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Threshold: Garmin MCP Server for Claude, ChatGPT and any AI assistant</title>
 <meta name="description" content="Open-source Garmin MCP server. Connect Garmin Connect to Claude, ChatGPT, Cursor and any AI assistant with the official Garmin Personal API. Readiness, HRV baseline, training load and FIT analysis. Free on Cloudflare Workers.">
 <meta name="keywords" content="Garmin MCP server, Garmin Claude, Garmin ChatGPT, Garmin Connect AI, Model Context Protocol, Garmin Personal API, HRV, training load, CTL ATL TSB, FIT file, Cloudflare Workers">
@@ -20,9 +20,15 @@
 <meta name="twitter:title" content="Threshold: Garmin MCP Server">
 <meta name="twitter:description" content="Ask Claude or ChatGPT about your Garmin training, sleep and recovery. Free, private, one-click deploy.">
 <meta name="twitter:image" content="https://kareemmsayed.github.io/Threshold/og.png">
-<meta name="theme-color" content="#0b7a5c">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7a5c'/%3E%3Cpath d='M5 20h5l3-9 4 14 3-9 2 4h5' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000'/%3E%3Cg fill='%23ff7a45'%3E%3Crect x='5' y='5' width='4' height='4' rx='1.2'/%3E%3Crect x='10' y='5' width='4' height='4' rx='1.2'/%3E%3Crect x='15' y='5' width='4' height='4' rx='1.2'/%3E%3Crect x='20' y='5' width='4' height='4' rx='1.2'/%3E%3C/g%3E%3Cg fill='%23f4f3ef'%3E%3Crect x='15' y='10' width='4' height='4' rx='1.2'/%3E%3Crect x='15' y='15' width='4' height='4' rx='1.2'/%3E%3Crect x='15' y='20' width='4' height='4' rx='1.2'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="alternate" type="text/plain" title="llms.txt" href="https://kareemmsayed.github.io/Threshold/llms.txt">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@100..900&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+<script>document.documentElement.classList.add('js')</script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -61,6 +67,19 @@
       "license": "https://opensource.org/licenses/MIT"
     },
     {
+      "@type": "HowTo",
+      "name": "Connect Garmin to Claude with Threshold",
+      "totalTime": "PT5M",
+      "step": [
+        { "@type": "HowToStep", "name": "Create a Garmin key", "text": "In Garmin Connect open Personal API, click Create and copy the key. Garmin shows it only once." },
+        { "@type": "HowToStep", "name": "Deploy with both keys", "text": "Click Deploy to Cloudflare, paste your Garmin key as GARMIN_API_KEY and a password you make up as ACCESS_KEY, then deploy." },
+        { "@type": "HowToStep", "name": "Open your server", "text": "Open https://threshold.<you>.workers.dev. The page says Ready and shows your MCP URL." },
+        { "@type": "HowToStep", "name": "Add a custom connector", "text": "In Claude open Settings, Connectors, Add custom connector, and paste the MCP URL." },
+        { "@type": "HowToStep", "name": "Approve with your access key", "text": "Threshold's consent page opens. Type your access key and click Allow." },
+        { "@type": "HowToStep", "name": "Ask", "text": "Ask Claude: How am I today?" }
+      ]
+    },
+    {
       "@type": "FAQPage",
       "mainEntity": [
         { "@type": "Question", "name": "What is a Garmin MCP server?", "acceptedAnswer": { "@type": "Answer", "text": "An MCP server exposes data and tools to AI assistants through the Model Context Protocol. A Garmin MCP server lets Claude, ChatGPT or another assistant read your Garmin Connect data and answer questions about it. Threshold also analyzes the data in code: readiness, training load, HRV baselines and best efforts." } },
@@ -74,81 +93,419 @@
   ]
 }
 </script>
-<style>
-:root{--bg:#f6f7f9;--card:#fff;--text:#14171c;--muted:#5b6472;--line:#e3e6eb;--accent:#0b7a5c;--accent-text:#fff;--code:#eef1f4}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--text:#e8ebef;--muted:#9aa4b2;--line:#2a3039;--accent:#3ccf9f;--accent-text:#06221a;--code:#20262e}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.wrap{max-width:880px;margin:0 auto;padding:0 16px}
-header{padding:56px 0 24px}
-.brand{display:flex;align-items:center;gap:10px;color:var(--accent);font-weight:650}
-.brand span{color:var(--text)}
-h1{font-size:clamp(30px,6vw,46px);line-height:1.15;margin:18px 0 12px;letter-spacing:-.5px}
-h2{font-size:24px;margin:44px 0 12px}
-h3{font-size:18px;margin:22px 0 6px}
-p{margin:0 0 14px;color:var(--muted)}
-strong{color:var(--text)}
-.lead{font-size:19px}
-.cta{display:flex;flex-wrap:wrap;gap:12px;margin:24px 0}
-.btn{display:inline-block;padding:12px 18px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
-.card h3{margin-top:0}
-.card p{margin:0;font-size:15px}
-code{background:var(--code);padding:2px 6px;border-radius:6px;font-size:14px}
-ul{color:var(--muted);padding-left:20px}
-details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
-summary{cursor:pointer;font-weight:600}
-details p{margin:10px 0 0}
-footer{padding:40px 0;color:var(--muted);font-size:14px}
-a{color:var(--accent)}
-</style>
 </head>
 <body>
-<div class="wrap">
-<header>
-<div class="brand"><svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="8" fill="currentColor" opacity=".14"/><path d="M5 20h5l3-9 4 14 3-9 2 4h5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Threshold</span></div>
-<h1>Garmin MCP server: ask Claude or ChatGPT about your training</h1>
-<p class="lead"><strong>Threshold is an open-source Garmin MCP server.</strong> It connects your Garmin Connect data to Claude, ChatGPT, Cursor and any AI assistant through the Model Context Protocol, using Garmin's official Personal API. It computes readiness, HRV baselines, training load and FIT-file analysis in code, and runs free on your own Cloudflare account.</p>
-<div class="cta">
-<a class="btn primary" href="https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold">Deploy to Cloudflare</a>
-<a class="btn" href="https://github.com/KareemmSayed/Threshold">View on GitHub</a>
-</div>
-<p>Ask: <em>"Am I recovered enough for intervals today?"</em> · <em>"Is my HRV trending down?"</em> · <em>"Am I ramping up too fast?"</em> · <em>"Break down this morning's run."</em></p>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav-wrap">
+  <nav class="nav glass" data-glass data-frost=".42" aria-label="Main">
+    <a class="brand" href="#top" aria-label="Threshold home">
+      <svg class="logo" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><g fill="#ff7a45"><rect x="1" y="1" width="4" height="4" rx="1.2"/><rect x="7" y="1" width="4" height="4" rx="1.2"/><rect x="13" y="1" width="4" height="4" rx="1.2"/><rect x="19" y="1" width="4" height="4" rx="1.2"/></g><g fill="currentColor"><rect x="13" y="7" width="4" height="4" rx="1.2"/><rect x="13" y="13" width="4" height="4" rx="1.2"/><rect x="13" y="19" width="4" height="4" rx="1.2"/></g><g fill="currentColor" opacity=".14"><rect x="7" y="7" width="4" height="4" rx="1.2"/><rect x="19" y="7" width="4" height="4" rx="1.2"/><rect x="7" y="13" width="4" height="4" rx="1.2"/><rect x="19" y="13" width="4" height="4" rx="1.2"/><rect x="1" y="7" width="4" height="4" rx="1.2"/><rect x="1" y="13" width="4" height="4" rx="1.2"/></g></svg>
+      <span>Threshold</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#setup">Setup</a>
+      <a href="#clients">Clients</a>
+      <a href="#how">How it works</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <a class="btn btn-sm btn-ink" href="https://github.com/KareemmSayed/Threshold">
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
 </header>
 
-<main>
-<h2>What it does</h2>
-<div class="grid">
-<div class="card"><h3>Daily readiness</h3><p>HRV, resting heart rate, sleep, Body Battery, training form and load ramp against your own 60-day baselines, with a clear green, amber or red call.</p></div>
-<div class="card"><h3>Training load</h3><p>Fitness (CTL), fatigue (ATL), form (TSB), acute:chronic workload ratio, monotony and strain, by week and by sport.</p></div>
-<div class="card"><h3>FIT file analysis</h3><p>Splits, HR zones, fastest 1k to marathon, power curve, aerobic decoupling and cardiac drift, NP, IF and TSS.</p></div>
-<div class="card"><h3>Hidden VO2 max</h3><p>Decodes VO2 max and performance condition that Garmin writes into FIT files but leaves out of the API.</p></div>
-<div class="card"><h3>Full history + SQL</h3><p>A private archive of every day and activity, with a read-only SQL tool for any question.</p></div>
-<div class="card"><h3>Works everywhere</h3><p>Claude web, desktop, iOS and Android, ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf.</p></div>
-</div>
+<main id="main">
 
-<h2>Set up in five minutes</h2>
-<ul>
-<li>Create a Garmin Personal API key in Garmin Connect.</li>
-<li>Click <strong>Deploy to Cloudflare</strong> and paste your key and a random access key.</li>
-<li>Add your server's <code>/mcp</code> URL as a custom connector in Claude or ChatGPT.</li>
-</ul>
-<p>Full guides for every client are in the <a href="https://github.com/KareemmSayed/Threshold#connect-your-ai">README</a>.</p>
+<!-- HERO ------------------------------------------------------------------>
+<section class="hero" id="top">
+  <canvas class="ascii-hero" id="ascii-hero" aria-hidden="true"></canvas>
+  <div class="hero-veil" aria-hidden="true"></div>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <a class="tag" href="https://github.com/KareemmSayed/Threshold"><span class="live"></span>Open source · MIT · v0.1.1</a>
+      <h1 class="hero-title">
+        <span class="sr">Garmin MCP server: ask Claude or ChatGPT about your training</span>
+        <span class="dot dot-xl" data-type aria-hidden="true">YOUR GARMIN,</span>
+        <span class="dot dot-xl hot cycle" data-cycle="IN CLAUDE.|IN CHATGPT.|IN CURSOR.|IN CODEX.|IN VS CODE.|IN GEMINI." aria-hidden="true">IN CLAUDE.</span>
+      </h1>
+      <p class="lead">Threshold is an open-source <strong>Garmin MCP server</strong>. Ask Claude, ChatGPT or any AI about your training, sleep and recovery, and get numbers computed in code, not guessed. It runs free on your own Cloudflare account.</p>
+      <div class="cta">
+        <a class="btn btn-lg btn-ink" href="https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold">Deploy to Cloudflare <span aria-hidden="true">→</span></a>
+        <a class="btn btn-lg btn-line" href="#setup">See the 5-minute setup</a>
+      </div>
+      <ul class="trust">
+        <li>No Garmin password</li>
+        <li>Read-only</li>
+        <li>Free on Workers</li>
+        <li>GPS stripped by default</li>
+      </ul>
+    </div>
 
-<h2>Frequently asked questions</h2>
-<details open><summary>What is a Garmin MCP server?</summary><p>An MCP server exposes data and tools to AI assistants through the Model Context Protocol. A Garmin MCP server lets Claude, ChatGPT or another assistant read your Garmin Connect data and answer questions about it. Threshold also analyzes the data in code: readiness, training load, HRV baselines and best efforts.</p></details>
-<details><summary>How do I connect my Garmin to Claude?</summary><p>Deploy Threshold to Cloudflare with one click, then in Claude open Settings → Connectors → Add custom connector, paste your server's <code>/mcp</code> URL and sign in with your access key. It works on claude.ai, Claude Desktop and the Claude mobile apps.</p></details>
-<details><summary>How do I connect my Garmin to ChatGPT?</summary><p>Turn on Developer mode in ChatGPT, create a connector with your Threshold <code>/mcp</code> URL, choose OAuth, and enter your access key.</p></details>
-<details><summary>Does it need my Garmin password?</summary><p>No. Threshold uses a revocable Garmin Personal API key that you create in Garmin Connect. It never asks for your password.</p></details>
-<details><summary>Is Threshold free?</summary><p>Yes. It is MIT-licensed and runs on Cloudflare's Workers Free plan.</p></details>
-<details><summary>Can it change anything on my Garmin account?</summary><p>No. The Garmin Personal API is read-only, and so is Threshold.</p></details>
+    <div class="hero-chat glass" data-glass data-frost=".5" aria-hidden="true">
+      <div class="hc-bar">
+        <span class="lights"><i></i><i></i><i></i></span>
+        <span class="hc-title">New chat</span>
+        <span class="hc-conn"><i></i>Threshold</span>
+      </div>
+      <div class="hc-body" id="hero-chat"></div>
+      <div class="hc-input"><span id="hero-chat-input">Ask about your training…</span><b>↑</b></div>
+    </div>
+  </div>
+
+  <div class="marquee" aria-label="Questions you can ask">
+    <div class="marquee-track">
+      <span>“How am I today?”</span><span>“Am I recovered enough for intervals today?”</span><span>“Is my HRV trending down?”</span><span>“Am I ramping up too fast?”</span><span>“Break down this morning’s run.”</span><span>“What are my 5k and 10k bests this year?”</span><span>“Which months did I climb the most?”</span><span>“Should I race on Sunday?”</span>
+      <span aria-hidden="true">“How am I today?”</span><span aria-hidden="true">“Am I recovered enough for intervals today?”</span><span aria-hidden="true">“Is my HRV trending down?”</span><span aria-hidden="true">“Am I ramping up too fast?”</span><span aria-hidden="true">“Break down this morning’s run.”</span><span aria-hidden="true">“What are my 5k and 10k bests this year?”</span><span aria-hidden="true">“Which months did I climb the most?”</span><span aria-hidden="true">“Should I race on Sunday?”</span>
+    </div>
+  </div>
+</section>
+
+<!-- WHY ------------------------------------------------------------------->
+<section class="section" id="why">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Why Threshold</p>
+      <h2 class="dot dot-lg" data-type>CODE DOES</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="350">THE MATH.</h2>
+      <p class="sub">Other Garmin MCP servers hand the model raw JSON and hope. Threshold computes every number and shows the rule behind it.</p>
+    </div>
+
+    <div class="versus rise">
+      <div class="vs-card vs-raw">
+        <div class="vs-head"><span>Typical Garmin MCP</span><span class="chip chip-danger">model guesses</span></div>
+        <div class="raw-scroll" aria-hidden="true"><pre id="raw-json"></pre></div>
+        <p class="vs-foot">100 fields per item. The model does arithmetic in its head.</p>
+      </div>
+      <div class="vs-arrow" aria-hidden="true">→</div>
+      <div class="vs-card vs-calc aura aura-moss">
+        <div class="vs-head"><span>Threshold · daily_briefing</span><span class="chip chip-ok">computed in code</span></div>
+        <table class="readout">
+          <tbody>
+            <tr><th>HRV 7-day</th><td>49 ms</td><td>normal 51–63</td><td><i class="sig amber"></i>slightly low</td></tr>
+            <tr><th>Resting HR</th><td>47 bpm</td><td>baseline 46</td><td><i class="sig green"></i>+1</td></tr>
+            <tr><th>Sleep</th><td>7 h 24</td><td>usual 7.3 h</td><td><i class="sig green"></i>score 82</td></tr>
+            <tr><th>Body Battery</th><td>71</td><td>30-day avg 64</td><td><i class="sig green"></i>good</td></tr>
+            <tr><th>Form (TSB)</th><td>−12</td><td>CTL 58 · ATL 70</td><td><i class="sig blue"></i>ok</td></tr>
+            <tr><th>Load ramp</th><td>1.34</td><td>ACWR &gt; 1.3</td><td><i class="sig amber"></i>caution</td></tr>
+          </tbody>
+        </table>
+        <div class="verdict"><span class="dot dot-md amber-text">AMBER</span><span>Keep intensity moderate. Easy aerobic work is fine.</span></div>
+        <p class="vs-foot">Rule: amber = 1 warning or 2+ cautions.</p>
+      </div>
+    </div>
+
+    <div class="compare rise" role="table" aria-label="Typical Garmin MCP compared with Threshold">
+      <div class="cmp-row cmp-h" role="row"><span role="columnheader"></span><span role="columnheader">Typical Garmin MCP</span><span role="columnheader">Threshold</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Readiness, training load (CTL/ATL/TSB, ACWR), HRV baseline</span><span class="no" role="cell">model guesses from raw JSON</span><span class="yes" role="cell">computed in code, rules shown</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Aerobic decoupling, cardiac drift, best efforts, power curve</span><span class="no" role="cell">no</span><span class="yes" role="cell">from the original FIT file</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">VO2 max and performance condition hidden from the API</span><span class="no" role="cell">no</span><span class="yes" role="cell">decoded from the FIT file</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Full-history archive with SQL</span><span class="no" role="cell">no</span><span class="yes" role="cell">D1 archive, read-only SQL tool</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Works on your phone (Claude / ChatGPT mobile)</span><span class="no" role="cell">rarely</span><span class="yes" role="cell">OAuth built in</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Hosting</span><span class="no" role="cell">your laptop must stay on</span><span class="yes" role="cell">Cloudflare free tier, one click</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Privacy</span><span class="no" role="cell">GPS and names in every response</span><span class="yes" role="cell">GPS and identifiers removed by default</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -------------------------------------------------------------->
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">What it does</p>
+      <h2 class="dot dot-lg" data-type>16 TOOLS.</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">ZERO GUESSES.</h2>
+    </div>
+
+    <div class="bento">
+      <article class="aura aura-moss b-ready rise">
+        <p class="eyebrow">daily_briefing</p>
+        <h3>Daily readiness</h3>
+        <p>HRV, resting heart rate, sleep, Body Battery, training form and load ramp against your own 60-day baselines, with a green, amber or red call.</p>
+        <ul class="signals">
+          <li><i class="sig amber"></i>HRV<span>49 ms · slightly low</span></li>
+          <li><i class="sig green"></i>Resting HR<span>47 bpm · +1</span></li>
+          <li><i class="sig green"></i>Sleep<span>7 h 24 · score 82</span></li>
+          <li><i class="sig green"></i>Body Battery<span>charged to 71</span></li>
+          <li><i class="sig blue"></i>Training form<span>TSB −12</span></li>
+          <li><i class="sig amber"></i>Load ramp<span>ACWR 1.34</span></li>
+        </ul>
+      </article>
+
+      <article class="aura aura-ember b-vo2 rise">
+        <p class="eyebrow">Hidden VO2 max</p>
+        <div class="big"><span class="dot dot-hero" data-type>58.4</span><small>ml/kg/min</small></div>
+        <p>Decoded from the FIT file’s undocumented message 140, where Garmin keeps VO2 max and performance condition but leaves them out of the API.</p>
+      </article>
+
+      <article class="aura aura-flame b-load rise">
+        <p class="eyebrow">training_load</p>
+        <h3>Training load</h3>
+        <svg class="dotchart" id="chart-load" viewBox="0 0 300 120" aria-hidden="true"></svg>
+        <div class="legend"><span><i style="background:#ff7a45"></i>Fatigue ATL 70</span><span><i style="background:#f4f3ef"></i>Fitness CTL 58</span><span>Form −12</span></div>
+        <p>CTL, ATL, TSB, acute:chronic ratio, monotony and strain, by week and by sport.</p>
+      </article>
+
+      <article class="aura aura-violet b-fit rise">
+        <p class="eyebrow">analyze_activity</p>
+        <h3>FIT file analysis</h3>
+        <svg class="dotchart" id="chart-power" viewBox="0 0 300 120" aria-hidden="true"></svg>
+        <div class="legend"><span>5 s</span><span>1 min</span><span>5 min</span><span>20 min</span><span>60 min</span></div>
+        <p>Splits, HR zones, best efforts, power curve, aerobic decoupling and drift, NP, IF and TSS.</p>
+      </article>
+
+      <article class="aura aura-azure b-sql rise">
+        <p class="eyebrow">query_archive</p>
+        <h3>Full history + SQL</h3>
+        <pre class="sql"><code><b>SELECT</b> strftime(<s>'%Y-%m'</s>, date) <b>AS</b> month,
+       <b>SUM</b>(elevation_gain_m) <b>AS</b> climb_m
+<b>FROM</b> activities
+<b>GROUP BY</b> month <b>ORDER BY</b> climb_m <b>DESC</b>
+<b>LIMIT</b> 3;</code></pre>
+        <p>A private D1 archive of every day and activity. Read-only SQL for any question.</p>
+      </article>
+
+      <article class="aura aura-graphite b-all rise">
+        <div>
+          <p class="eyebrow">Works everywhere</p>
+          <h3>Web, desktop, phone, terminal</h3>
+        </div>
+        <ul class="clients">
+          <li>Claude</li><li>ChatGPT</li><li>Claude Code</li><li>Cursor</li><li>VS Code</li><li>Codex</li><li>Gemini CLI</li><li>Windsurf</li><li>any MCP client</li>
+        </ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- SETUP GUIDE ----------------------------------------------------------->
+<section class="section setup" id="setup">
+  <div class="setup-glow" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Set up · 5 minutes</p>
+      <h2 class="dot dot-lg" data-type>SIX STEPS.</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">WATCH THEM.</h2>
+      <p class="sub">You need a free <a href="https://dash.cloudflare.com/sign-up">Cloudflare account</a> and a Garmin watch that syncs to Garmin Connect. Pick your app:</p>
+    </div>
+
+    <div class="seg" role="tablist" aria-label="Your AI app" id="guide-tabs">
+      <button role="tab" aria-selected="true" data-client="claude">Claude</button>
+      <button role="tab" aria-selected="false" data-client="chatgpt">ChatGPT</button>
+      <button role="tab" aria-selected="false" data-client="code">Claude Code</button>
+    </div>
+
+    <div class="guide" id="guide">
+      <ol class="steps" id="guide-steps">
+        <li><button type="button"><span class="n dot">01</span><span class="t"><b>Create a Garmin key</b><span>Garmin Connect → Personal API → Create. Copy it; Garmin shows it once.</span></span><i class="bar"></i></button></li>
+        <li><button type="button"><span class="n dot">02</span><span class="t"><b>Deploy with both keys</b><span>Click Deploy to Cloudflare. Paste your Garmin key and make up an access key.</span></span><i class="bar"></i></button></li>
+        <li><button type="button"><span class="n dot">03</span><span class="t"><b>Open your server</b><span>It says Ready and shows your MCP URL. Copy it.</span></span><i class="bar"></i></button></li>
+        <li><button type="button"><span class="n dot">04</span><span class="t"><b>Add a custom connector</b><span>Settings → Connectors → Add custom connector. Paste the URL.</span></span><i class="bar"></i></button></li>
+        <li><button type="button"><span class="n dot">05</span><span class="t"><b>Approve with your access key</b><span>Threshold’s own page opens. Type your access key, click Allow.</span></span><i class="bar"></i></button></li>
+        <li><button type="button"><span class="n dot">06</span><span class="t"><b>Ask</b><span>“How am I today?” Works on web, desktop and phone.</span></span><i class="bar"></i></button></li>
+      </ol>
+
+      <div class="stage-wrap glass">
+        <div class="stage" id="stage" aria-hidden="true">
+          <div class="chrome">
+            <span class="lights"><i></i><i></i><i></i></span>
+            <span class="url"><svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M3.5 5V3.6a2.5 2.5 0 015 0V5h.5a1 1 0 011 1v4a1 1 0 01-1 1h-6a1 1 0 01-1-1V6a1 1 0 011-1zm1 0h3V3.6a1.5 1.5 0 00-3 0z"/></svg><span id="stage-url"></span></span>
+          </div>
+          <div class="screen" id="screen"></div>
+          <div class="cursor" id="cursor"><svg viewBox="0 0 20 24" width="20" height="24"><path d="M2 1.5v18.2l4.6-4.4 3 6.6 3.1-1.4-3-6.5h6.4z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg><i></i></div>
+        </div>
+        <div class="stage-foot">
+          <p id="stage-caption" aria-live="polite"></p>
+          <div class="ctrls">
+            <button type="button" id="g-prev" aria-label="Previous step">‹</button>
+            <button type="button" id="g-play" aria-label="Pause">❚❚</button>
+            <button type="button" id="g-next" aria-label="Next step">›</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <details class="later">
+      <summary>Add or change a key later</summary>
+      <p>Cloudflare dashboard → <b>Workers &amp; Pages</b> → <b>threshold</b> → <b>Settings</b> → <b>Variables and secrets</b> → <b>Add</b>. Choose type <b>Secret</b>, enter <code>GARMIN_API_KEY</code> or <code>ACCESS_KEY</code> and the value, then <b>Deploy</b>. If a key is missing, your server’s page says which one and suggests a strong access key.</p>
+    </details>
+  </div>
+</section>
+
+<!-- CLIENTS --------------------------------------------------------------->
+<section class="section" id="clients">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Connect anything</p>
+      <h2 class="dot dot-lg" data-type>ANY MCP</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">CLIENT.</h2>
+      <p class="sub">Apps with a config file send your access key as a bearer token. Replace <code>&lt;you&gt;</code> with your workers.dev subdomain.</p>
+    </div>
+
+    <div class="codebox rise">
+      <div class="code-tabs" role="tablist" aria-label="Client" id="code-tabs">
+        <button role="tab" aria-selected="true" data-code="cursor">Cursor</button>
+        <button role="tab" aria-selected="false" data-code="vscode">VS Code</button>
+        <button role="tab" aria-selected="false" data-code="codex">Codex CLI</button>
+        <button role="tab" aria-selected="false" data-code="gemini">Gemini CLI</button>
+        <button role="tab" aria-selected="false" data-code="windsurf">Windsurf</button>
+        <button role="tab" aria-selected="false" data-code="stdio">stdio apps</button>
+      </div>
+      <div class="code-panel">
+        <div class="code-meta"><span id="code-file">~/.cursor/mcp.json</span><button type="button" class="copy" id="code-copy">Copy</button></div>
+<pre id="code-cursor"><code>{
+  "mcpServers": {
+    "threshold": {
+      "url": "https://threshold.&lt;you&gt;.workers.dev/mcp",
+      "headers": { "Authorization": "Bearer &lt;ACCESS_KEY&gt;" }
+    }
+  }
+}</code></pre>
+<pre id="code-vscode" hidden><code>{
+  "servers": {
+    "threshold": {
+      "type": "http",
+      "url": "https://threshold.&lt;you&gt;.workers.dev/mcp",
+      "headers": { "Authorization": "Bearer ${input:threshold-key}" }
+    }
+  },
+  "inputs": [{ "id": "threshold-key", "type": "promptString", "description": "Threshold access key", "password": true }]
+}</code></pre>
+<pre id="code-codex" hidden><code>[mcp_servers.threshold]
+url = "https://threshold.&lt;you&gt;.workers.dev/mcp"
+bearer_token_env_var = "THRESHOLD_ACCESS_KEY"</code></pre>
+<pre id="code-gemini" hidden><code>{
+  "mcpServers": {
+    "threshold": {
+      "httpUrl": "https://threshold.&lt;you&gt;.workers.dev/mcp",
+      "headers": { "Authorization": "Bearer &lt;ACCESS_KEY&gt;" }
+    }
+  }
+}</code></pre>
+<pre id="code-windsurf" hidden><code>{
+  "mcpServers": {
+    "threshold": {
+      "serverUrl": "https://threshold.&lt;you&gt;.workers.dev/mcp",
+      "headers": { "Authorization": "Bearer &lt;ACCESS_KEY&gt;" }
+    }
+  }
+}</code></pre>
+<pre id="code-stdio" hidden><code>{
+  "mcpServers": {
+    "threshold": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://threshold.&lt;you&gt;.workers.dev/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+      "env": { "AUTH_HEADER": "Bearer &lt;ACCESS_KEY&gt;" }
+    }
+  }
+}</code></pre>
+      </div>
+      <p class="code-note">Anything else: Streamable HTTP with OAuth 2.1 (dynamic client registration, Client ID Metadata Documents, PKCE) or a bearer header.</p>
+    </div>
+  </div>
+</section>
+
+<!-- HOW ------------------------------------------------------------------->
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Under the hood</p>
+      <h2 class="dot dot-lg" data-type>HOW IT</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">WORKS.</h2>
+    </div>
+    <div class="flow rise">
+      <pre class="ascii-flow" id="flow" aria-label="Your AI app connects to /mcp on your Cloudflare Worker with OAuth or a bearer key. The Worker analyzes data from its D1 archive, which a cron job fills every 10 minutes from Garmin's read-only Personal API."></pre>
+    </div>
+    <div class="facts">
+      <div class="fact rise"><span class="dot dot-sm">01</span><h3>Archive first</h3><p>Tools read a D1 archive and fetch only missing or recent days. Recent days are re-checked, because watches sync late.</p></div>
+      <div class="fact rise"><span class="dot dot-sm">02</span><h3>Background sync</h3><p>Every 10 minutes a cron job refreshes recent days and walks back through your history, inside the Workers limits.</p></div>
+      <div class="fact rise"><span class="dot dot-sm">03</span><h3>Fast FIT decoder</h3><p>Reads a one-hour activity in about a millisecond, 20× faster than Garmin’s JavaScript SDK.</p></div>
+      <div class="fact rise"><span class="dot dot-sm">04</span><h3>Hidden metrics</h3><p>VO2 max = field 7 × 3.5 / 65536 from message 140. Anything less certain is labelled experimental.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- FREE TIER ------------------------------------------------------------->
+<section class="section" id="free">
+  <div class="wrap two">
+    <div class="head">
+      <p class="eyebrow">Cost: $0</p>
+      <h2 class="dot dot-lg" data-type>FITS THE</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">FREE TIER.</h2>
+      <p class="sub">One person’s data is small. The first backfill of a long history takes hours to days on Free; <a href="https://developers.cloudflare.com/workers/platform/pricing/">Workers Paid</a> ($5/month, <code>PLAN=paid</code>) does it 5–20× faster.</p>
+    </div>
+    <ul class="meters" id="meters">
+      <li data-pct="0.3"><div><b>CPU per request</b><span>Most tool calls use a few ms</span></div><span class="limit">10 ms</span><span class="meter"></span></li>
+      <li data-pct="0.6"><div><b>External requests</b><span>30 per tool call, 12 per cron run</span></div><span class="limit">50 / call</span><span class="meter"></span></li>
+      <li data-pct="0.004"><div><b>Requests per day</b><span>~150 cron runs plus your chats</span></div><span class="limit">100,000</span><span class="meter"></span></li>
+      <li data-pct="0.004"><div><b>D1 storage</b><span>Years of history in a few MB</span></div><span class="limit">5 GB</span><span class="meter"></span></li>
+      <li data-pct="0.006"><div><b>KV writes per day</b><span>A few: Garmin token, OAuth</span></div><span class="limit">1,000</span><span class="meter"></span></li>
+      <li data-pct="0.2"><div><b>Cron triggers</b><span>One, every 10 minutes</span></div><span class="limit">5</span><span class="meter"></span></li>
+    </ul>
+  </div>
+</section>
+
+<!-- PRIVACY --------------------------------------------------------------->
+<section class="section" id="privacy">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">Privacy and security</p>
+      <h2 class="dot dot-lg" data-type>YOUR DATA.</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">YOUR ACCOUNT.</h2>
+    </div>
+    <div class="privacy">
+      <div class="p-item rise"><span class="p-ic">◉</span><h3>Single user</h3><p>Built for one person on their own Cloudflare account. No hosted service; your data never passes through this project.</p></div>
+      <div class="p-item rise"><span class="p-ic">⌁</span><h3>Key stays put</h3><p>The Garmin key never leaves the Worker. It is exchanged for a 24-hour token cached in your KV.</p></div>
+      <div class="p-item rise"><span class="p-ic">◎</span><h3>Read-only</h3><p>The Personal API cannot change your Garmin account, and the SQL tool refuses anything but <code>SELECT</code>.</p></div>
+      <div class="p-item rise"><span class="p-ic">⊘</span><h3>Only you connect</h3><p>The consent page asks for your access key, shows where tokens go, and warns about local apps.</p></div>
+      <div class="p-item rise"><span class="p-ic">⌖</span><h3>Less exposure</h3><p>GPS coordinates, place names and personal identifiers are removed from responses unless you ask.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ ------------------------------------------------------------------->
+<section class="section" id="faq">
+  <div class="wrap two">
+    <div class="head">
+      <p class="eyebrow">FAQ</p>
+      <h2 class="dot dot-lg" data-type>QUESTIONS.</h2>
+      <p class="sub">More in the <a href="https://github.com/KareemmSayed/Threshold#faq">README</a>.</p>
+    </div>
+    <div class="faq">
+      <details open><summary>What is a Garmin MCP server?</summary><p>An MCP server exposes data and tools to AI assistants through the Model Context Protocol. A Garmin MCP server lets Claude, ChatGPT or another assistant read your Garmin Connect data and answer questions about it. Threshold also analyzes the data in code: readiness, training load, HRV baselines and best efforts.</p></details>
+      <details><summary>How do I connect my Garmin to Claude?</summary><p>Deploy Threshold to Cloudflare with one click, then in Claude open Settings → Connectors → Add custom connector, paste your server’s <code>/mcp</code> URL and sign in with your access key. It works on claude.ai, Claude Desktop and the Claude mobile apps.</p></details>
+      <details><summary>How do I connect my Garmin to ChatGPT?</summary><p>Turn on Developer mode in ChatGPT, create a connector with your Threshold <code>/mcp</code> URL, choose OAuth, and enter your access key.</p></details>
+      <details><summary>Does it need my Garmin password?</summary><p>No. Threshold uses a revocable Garmin Personal API key that you create in Garmin Connect. It never asks for your password.</p></details>
+      <details><summary>Is Threshold free?</summary><p>Yes. It is MIT-licensed and runs on Cloudflare’s Workers Free plan.</p></details>
+      <details><summary>Can it change anything on my Garmin account?</summary><p>No. The Garmin Personal API is read-only, and so is Threshold.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- END ------------------------------------------------------------------->
+<section class="end" id="start">
+  <canvas class="ascii-word" id="ascii-word" aria-hidden="true"></canvas>
+  <div class="wrap end-copy">
+    <h2 class="dot dot-lg" data-type>READY IN</h2>
+    <h2 class="dot dot-lg hot" data-type data-delay="300">FIVE MINUTES.</h2>
+    <div class="cta center">
+      <a class="btn btn-lg btn-ink" href="https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold">Deploy to Cloudflare <span aria-hidden="true">→</span></a>
+      <a class="btn btn-lg btn-line" href="https://github.com/KareemmSayed/Threshold">Read the README</a>
+    </div>
+  </div>
+</section>
+
 </main>
 
-<footer>
-Threshold is open source under the MIT license. Not affiliated with or endorsed by Garmin. Garmin and Garmin Connect are trademarks of Garmin Ltd. or its subsidiaries. Not medical advice.
+<footer class="foot">
+  <div class="wrap">
+    <p>Threshold is open source under the MIT license. Not affiliated with or endorsed by Garmin. Garmin and Garmin Connect are trademarks of Garmin Ltd. or its subsidiaries. Not medical advice.</p>
+    <p class="foot-links"><a href="https://github.com/KareemmSayed/Threshold">GitHub</a><a href="https://github.com/KareemmSayed/Threshold/blob/main/SECURITY.md">Security</a><a href="llms.txt">llms.txt</a></p>
+  </div>
 </footer>
-</div>
+
+<script src="assets/site.js" defer></script>
 </body>
 </html>
