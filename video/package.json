@@ -1,0 +1,32 @@
+{
+  "name": "threshold-launch-video",
+  "private": true,
+  "description": "The Threshold launch video, built with Remotion from the website's own markup and CSS.",
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "render": "node scripts/render.mjs",
+    "still": "remotion still src/index.ts",
+    "compare": "node scripts/compare.mjs",
+    "determinism": "node scripts/determinism.mjs",
+    "compare:portrait": "node scripts/compare-portrait.mjs",
+    "review": "scripts/watch.sh"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.538",
+    "@remotion/google-fonts": "4.0.538",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.538"
+  },
+  "devDependencies": {
+    "@remotion/bundler": "^4.0.538",
+    "@remotion/renderer": "^4.0.538",
+    "@types/react": "19.3.0",
+    "pixelmatch": "8.0.0",
+    "playwright-core": "1.64.1",
+    "pngjs": "7.0.0",
+    "typescript": "7.0.2"
+  }
+}
