@@ -1,6 +1,6 @@
 {
   "name": "threshold",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Garmin MCP server: connect Garmin Connect to Claude, ChatGPT and any AI assistant. Readiness, HRV, training load and FIT analysis, free on Cloudflare Workers.",
   "license": "MIT",
