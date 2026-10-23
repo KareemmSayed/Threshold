@@ -27,7 +27,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@100..900&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
-<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/site.css?v=2">
 <script>document.documentElement.classList.add('js')</script>
 <script type="application/ld+json">
 {
@@ -105,6 +105,7 @@
     </a>
     <div class="nav-links">
       <a href="#features">Features</a>
+      <a href="#demo">Demo</a>
       <a href="#setup">Setup</a>
       <a href="#clients">Clients</a>
       <a href="#how">How it works</a>
@@ -276,6 +277,125 @@
           <li>Claude</li><li>ChatGPT</li><li>Claude Code</li><li>Cursor</li><li>VS Code</li><li>Codex</li><li>Gemini CLI</li><li>Windsurf</li><li>any MCP client</li>
         </ul>
       </article>
+    </div>
+  </div>
+</section>
+
+<!-- DEMO: a real conversation ------------------------------------------------>
+<section class="section" id="demo">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow">A real conversation</p>
+      <h2 class="dot dot-lg" data-type>ONE RUN.</h2>
+      <h2 class="dot dot-lg dim" data-type data-delay="300">EVERY 5K.</h2>
+      <p class="sub">Two questions after a track session, in Claude. Every number below came from Threshold’s tools, not from the model.</p>
+    </div>
+
+    <div class="convo">
+      <!-- Turn 1 -->
+      <div class="turn rise">
+        <p class="ask">Using Threshold, give me some insights about my most recent run.</p>
+        <span class="used"><i class="ok">✓</i>Used analyze_activity</span>
+        <div class="reply aura aura-flame">
+          <div class="stats">
+            <div><span class="dot dot-md">5.01</span><small>km</small></div>
+            <div><span class="dot dot-md">17:21</span><small>time</small></div>
+            <div><span class="dot dot-md">3:28</span><small>/km</small></div>
+            <div><span class="dot dot-md">60.5</span><small>VO2 max</small></div>
+          </div>
+
+          <div class="r-grid">
+            <div class="r-block">
+              <h3>Pacing</h3>
+              <ul class="splits" aria-label="Kilometre splits">
+                <li style="--w:.62"><span>km 1</span><i></i><b>3:22</b></li>
+                <li style="--w:.74"><span>km 2</span><i></i><b>3:26</b></li>
+                <li style="--w:.82"><span>km 3</span><i></i><b>3:29</b></li>
+                <li class="slow" style="--w:1"><span>km 4</span><i></i><b>3:36</b></li>
+                <li style="--w:.8"><span>km 5</span><i></i><b>3:28</b></li>
+              </ul>
+              <p>You started too fast: km 1 was 3:22, and km 4 was the slowest at 3:36, a 14 s spread. You recovered in km 5 for a good finish.</p>
+            </div>
+            <div class="r-block">
+              <h3>Heart rate</h3>
+              <div class="kv"><span>Average</span><b>189 bpm</b></div>
+              <div class="kv"><span>Max</span><b>199 bpm</b></div>
+              <div class="kv"><span>Zone 5</span><b>15:02 · 87%</b></div>
+              <p>HR rose from 176 in km 1 to 196 in km 5 while the pace dropped: cardiac drift under a hard load.</p>
+            </div>
+            <div class="r-block">
+              <h3>Form</h3>
+              <div class="kv"><span>Cadence</span><b>172 → 157 spm</b></div>
+              <p>Fatigue shortened your stride rhythm. The cadence drop matches the pace fade in km 4.</p>
+            </div>
+            <div class="r-block">
+              <h3>Load and effect</h3>
+              <div class="kv"><span>Training load</span><b>158</b></div>
+              <div class="kv"><span>Aerobic / anaerobic</span><b>3.4 / 2.4</b></div>
+              <div class="kv"><span>Performance condition</span><b>6 → 1</b></div>
+              <p>Garmin labels it a VO2 max session. At 25–27 °C, the heat added to the drift.</p>
+            </div>
+          </div>
+
+          <div class="todo">
+            <h3>What to do next</h3>
+            <ul>
+              <li>Start at 3:28/km, not 3:22. Even splits can save about 5–10 s over 5 km.</li>
+              <li>Run easy or rest tomorrow. Garmin’s recovery estimate is about 29 hours (unverified field).</li>
+              <li>Keep your cadence near 170 in the late laps.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Turn 2 -->
+      <div class="turn rise">
+        <p class="ask">Yes, compare it with every 5K I’ve done.</p>
+        <span class="used"><i class="ok">✓</i>Used 8 tools · list_activities, personal_records, analyze_activity…</span>
+        <div class="reply aura aura-violet">
+          <p class="headline"><span class="dot dot-md hot">PB −33 s.</span> Today is your best 5K, 33 s faster than your previous best.</p>
+          <div class="pbs" role="table" aria-label="Every 5K effort">
+            <div class="pb pb-h" role="row"><span role="columnheader">Date</span><span role="columnheader">Time</span><span role="columnheader" class="bar-col"></span><span role="columnheader">Pace</span><span role="columnheader">HR avg / max</span></div>
+            <div class="pb" role="row" style="--t:1100"><span role="cell">10 May 2024</span><b role="cell">18:20</b><i role="cell"></i><span role="cell">3:40</span><span role="cell">184 / 194</span></div>
+            <div class="pb" role="row" style="--t:1139"><span role="cell">30 Aug 2025</span><b role="cell">18:59</b><i role="cell"></i><span role="cell">3:46</span><span role="cell">182 / 196</span></div>
+            <div class="pb" role="row" style="--t:1101"><span role="cell">3 Mar 2026</span><b role="cell">18:21</b><i role="cell"></i><span role="cell">3:40</span><span role="cell">185 / 191</span></div>
+            <div class="pb" role="row" style="--t:1133"><span role="cell">26 Mar 2026</span><b role="cell">18:53</b><i role="cell"></i><span role="cell">3:46</span><span role="cell">180 / 186</span></div>
+            <div class="pb" role="row" style="--t:1121"><span role="cell">17 Apr 2026*</span><b role="cell">18:41</b><i role="cell"></i><span role="cell">3:37</span><span role="cell">191 / 198</span></div>
+            <div class="pb" role="row" style="--t:1096"><span role="cell">17 Jul 2026</span><b role="cell">18:16</b><i role="cell"></i><span role="cell">3:39</span><span role="cell">190 / 197</span></div>
+            <div class="pb" role="row" style="--t:1074"><span role="cell">10 Oct 2026</span><b role="cell">17:54</b><i role="cell"></i><span role="cell">3:34</span><span role="cell">190 / 198</span></div>
+            <div class="pb today" role="row" style="--t:1041"><span role="cell">23 Oct 2026</span><b role="cell">17:21</b><i role="cell"></i><span role="cell">3:28</span><span role="cell">189 / 199</span></div>
+          </div>
+          <p class="foot-note">* That run was 5.17 km.</p>
+
+          <div class="r-grid">
+            <div class="r-block">
+              <h3>Insights</h3>
+              <ul class="plain">
+                <li>59 s faster than your first 5K in May 2024, and 33 s gained in 13 days.</li>
+                <li>HR stayed near 190 in the last four efforts, so the same effort now gives a faster pace: a fitness gain. Your March efforts had a lower HR (180–185).</li>
+                <li>Your best 4K pace is 3:21 (18 Jun). Your 5K pace is now close to it.</li>
+              </ul>
+            </div>
+            <div class="r-block">
+              <h3>Fair test</h3>
+              <ul class="plain">
+                <li>Today was on a flat track at 25 °C.</li>
+                <li>10 Oct was outdoors at 29 °C with 12 m of climb; 17 Jul was at 33 °C.</li>
+                <li>Conditions explain part of the gain.</li>
+              </ul>
+            </div>
+            <div class="r-block">
+              <h3>Next target</h3>
+              <div class="big"><span class="dot dot-md">17:00</span><small>needs 3:24/km</small></div>
+              <p>Hold even splits, and don’t start at 3:22.</p>
+            </div>
+            <div class="r-block">
+              <h3>Limits</h3>
+              <p>Only 6 runs have full FIT data, so splits can’t be compared for older efforts. Only runs of about 5 km are counted; a 5K inside a longer run is not included.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -506,6 +626,6 @@ bearer_token_env_var = "THRESHOLD_ACCESS_KEY"</code></pre>
   </div>
 </footer>
 
-<script src="assets/site.js" defer></script>
+<script src="assets/site.js?v=2" defer></script>
 </body>
 </html>
