@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threshold: Garmin MCP Server for Claude, ChatGPT and any AI assistant</title>
+<meta name="description" content="Open-source Garmin MCP server. Connect Garmin Connect to Claude, ChatGPT, Cursor and any AI assistant with the official Garmin Personal API. Readiness, HRV baseline, training load and FIT analysis. Free on Cloudflare Workers.">
+<meta name="keywords" content="Garmin MCP server, Garmin Claude, Garmin ChatGPT, Garmin Connect AI, Model Context Protocol, Garmin Personal API, HRV, training load, CTL ATL TSB, FIT file, Cloudflare Workers">
+<link rel="canonical" href="https://kareemmsayed.github.io/threshold/">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Threshold">
+<meta property="og:title" content="Threshold: Garmin MCP Server">
+<meta property="og:description" content="Ask Claude or ChatGPT about your Garmin training, sleep and recovery. Numbers computed by code. Free, private, one-click deploy.">
+<meta property="og:url" content="https://kareemmsayed.github.io/threshold/">
+<meta property="og:image" content="https://kareemmsayed.github.io/threshold/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Threshold: Garmin MCP Server">
+<meta name="twitter:description" content="Ask Claude or ChatGPT about your Garmin training, sleep and recovery. Free, private, one-click deploy.">
+<meta name="twitter:image" content="https://kareemmsayed.github.io/threshold/og.png">
+<meta name="theme-color" content="#0b7a5c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b7a5c'/%3E%3Cpath d='M5 20h5l3-9 4 14 3-9 2 4h5' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="alternate" type="text/plain" title="llms.txt" href="https://kareemmsayed.github.io/threshold/llms.txt">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "Threshold",
+      "alternateName": "Threshold Garmin MCP Server",
+      "description": "Open-source, self-hosted Model Context Protocol server that connects Garmin Connect data to AI assistants such as Claude and ChatGPT, and computes readiness, HRV baselines, training load and FIT-file analysis.",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Model Context Protocol server",
+      "operatingSystem": "Cloudflare Workers",
+      "url": "https://kareemmsayed.github.io/threshold/",
+      "downloadUrl": "https://github.com/KareemmSayed/threshold",
+      "softwareVersion": "0.1.0",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "Kareem Sayed", "url": "https://github.com/KareemmSayed" },
+      "featureList": [
+        "Daily readiness briefing from HRV, resting heart rate, sleep and Body Battery",
+        "Training load: CTL, ATL, TSB, ACWR, monotony and strain",
+        "HRV baseline with a personal normal range",
+        "FIT file analysis: splits, best efforts, power curve, aerobic decoupling",
+        "VO2 max decoded from Garmin FIT files",
+        "Full-history archive with read-only SQL",
+        "OAuth for Claude and ChatGPT on web, desktop and mobile"
+      ]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "name": "Threshold",
+      "codeRepository": "https://github.com/KareemmSayed/threshold",
+      "programmingLanguage": "TypeScript",
+      "runtimePlatform": "Cloudflare Workers",
+      "license": "https://opensource.org/licenses/MIT"
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        { "@type": "Question", "name": "What is a Garmin MCP server?", "acceptedAnswer": { "@type": "Answer", "text": "An MCP server exposes data and tools to AI assistants through the Model Context Protocol. A Garmin MCP server lets Claude, ChatGPT or another assistant read your Garmin Connect data and answer questions about it. Threshold also analyzes the data in code: readiness, training load, HRV baselines and best efforts." } },
+        { "@type": "Question", "name": "How do I connect my Garmin to Claude?", "acceptedAnswer": { "@type": "Answer", "text": "Deploy Threshold to Cloudflare with one click, then in Claude open Settings, Connectors, Add custom connector, paste your server's /mcp URL and sign in with your access key. It works on claude.ai, Claude Desktop and the Claude mobile apps." } },
+        { "@type": "Question", "name": "How do I connect my Garmin to ChatGPT?", "acceptedAnswer": { "@type": "Answer", "text": "Turn on Developer mode in ChatGPT, create a connector with your Threshold /mcp URL, choose OAuth, and enter your access key." } },
+        { "@type": "Question", "name": "Does it need my Garmin password?", "acceptedAnswer": { "@type": "Answer", "text": "No. Threshold uses a revocable Garmin Personal API key that you create in Garmin Connect. It never asks for your password." } },
+        { "@type": "Question", "name": "Is Threshold free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Threshold is MIT-licensed and runs on Cloudflare's Workers Free plan." } },
+        { "@type": "Question", "name": "Can it change anything on my Garmin account?", "acceptedAnswer": { "@type": "Answer", "text": "No. The Garmin Personal API is read-only, and so is Threshold." } }
+      ]
+    }
+  ]
+}
+</script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#14171c;--muted:#5b6472;--line:#e3e6eb;--accent:#0b7a5c;--accent-text:#fff;--code:#eef1f4}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--text:#e8ebef;--muted:#9aa4b2;--line:#2a3039;--accent:#3ccf9f;--accent-text:#06221a;--code:#20262e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px}
+header{padding:56px 0 24px}
+.brand{display:flex;align-items:center;gap:10px;color:var(--accent);font-weight:650}
+.brand span{color:var(--text)}
+h1{font-size:clamp(30px,6vw,46px);line-height:1.15;margin:18px 0 12px;letter-spacing:-.5px}
+h2{font-size:24px;margin:44px 0 12px}
+h3{font-size:18px;margin:22px 0 6px}
+p{margin:0 0 14px;color:var(--muted)}
+strong{color:var(--text)}
+.lead{font-size:19px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin:24px 0}
+.btn{display:inline-block;padding:12px 18px;border-radius:10px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+.card h3{margin-top:0}
+.card p{margin:0;font-size:15px}
+code{background:var(--code);padding:2px 6px;border-radius:6px;font-size:14px}
+ul{color:var(--muted);padding-left:20px}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}
+summary{cursor:pointer;font-weight:600}
+details p{margin:10px 0 0}
+footer{padding:40px 0;color:var(--muted);font-size:14px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="brand"><svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="8" fill="currentColor" opacity=".14"/><path d="M5 20h5l3-9 4 14 3-9 2 4h5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Threshold</span></div>
+<h1>Garmin MCP server: ask Claude or ChatGPT about your training</h1>
+<p class="lead"><strong>Threshold is an open-source Garmin MCP server.</strong> It connects your Garmin Connect data to Claude, ChatGPT, Cursor and any AI assistant through the Model Context Protocol, using Garmin's official Personal API. It computes readiness, HRV baselines, training load and FIT-file analysis in code, and runs free on your own Cloudflare account.</p>
+<div class="cta">
+<a class="btn primary" href="https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/threshold">Deploy to Cloudflare</a>
+<a class="btn" href="https://github.com/KareemmSayed/threshold">View on GitHub</a>
+</div>
+<p>Ask: <em>"Am I recovered enough for intervals today?"</em> · <em>"Is my HRV trending down?"</em> · <em>"Am I ramping up too fast?"</em> · <em>"Break down this morning's run."</em></p>
+</header>
+
+<main>
+<h2>What it does</h2>
+<div class="grid">
+<div class="card"><h3>Daily readiness</h3><p>HRV, resting heart rate, sleep, Body Battery, training form and load ramp against your own 60-day baselines, with a clear green, amber or red call.</p></div>
+<div class="card"><h3>Training load</h3><p>Fitness (CTL), fatigue (ATL), form (TSB), acute:chronic workload ratio, monotony and strain, by week and by sport.</p></div>
+<div class="card"><h3>FIT file analysis</h3><p>Splits, HR zones, fastest 1k to marathon, power curve, aerobic decoupling and cardiac drift, NP, IF and TSS.</p></div>
+<div class="card"><h3>Hidden VO2 max</h3><p>Decodes VO2 max and performance condition that Garmin writes into FIT files but leaves out of the API.</p></div>
+<div class="card"><h3>Full history + SQL</h3><p>A private archive of every day and activity, with a read-only SQL tool for any question.</p></div>
+<div class="card"><h3>Works everywhere</h3><p>Claude web, desktop, iOS and Android, ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf.</p></div>
+</div>
+
+<h2>Set up in five minutes</h2>
+<ul>
+<li>Create a Garmin Personal API key in Garmin Connect.</li>
+<li>Click <strong>Deploy to Cloudflare</strong> and paste your key and a random access key.</li>
+<li>Add your server's <code>/mcp</code> URL as a custom connector in Claude or ChatGPT.</li>
+</ul>
+<p>Full guides for every client are in the <a href="https://github.com/KareemmSayed/threshold#connect-your-ai">README</a>.</p>
+
+<h2>Frequently asked questions</h2>
+<details open><summary>What is a Garmin MCP server?</summary><p>An MCP server exposes data and tools to AI assistants through the Model Context Protocol. A Garmin MCP server lets Claude, ChatGPT or another assistant read your Garmin Connect data and answer questions about it. Threshold also analyzes the data in code: readiness, training load, HRV baselines and best efforts.</p></details>
+<details><summary>How do I connect my Garmin to Claude?</summary><p>Deploy Threshold to Cloudflare with one click, then in Claude open Settings → Connectors → Add custom connector, paste your server's <code>/mcp</code> URL and sign in with your access key. It works on claude.ai, Claude Desktop and the Claude mobile apps.</p></details>
+<details><summary>How do I connect my Garmin to ChatGPT?</summary><p>Turn on Developer mode in ChatGPT, create a connector with your Threshold <code>/mcp</code> URL, choose OAuth, and enter your access key.</p></details>
+<details><summary>Does it need my Garmin password?</summary><p>No. Threshold uses a revocable Garmin Personal API key that you create in Garmin Connect. It never asks for your password.</p></details>
+<details><summary>Is Threshold free?</summary><p>Yes. It is MIT-licensed and runs on Cloudflare's Workers Free plan.</p></details>
+<details><summary>Can it change anything on my Garmin account?</summary><p>No. The Garmin Personal API is read-only, and so is Threshold.</p></details>
+</main>
+
+<footer>
+Threshold is open source under the MIT license. Not affiliated with or endorsed by Garmin. Garmin and Garmin Connect are trademarks of Garmin Ltd. or its subsidiaries. Not medical advice.
+</footer>
+</div>
+</body>
+</html>
