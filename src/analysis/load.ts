@@ -39,6 +39,17 @@ export interface LoadDay {
 const CTL_DAYS = 42;
 const ATL_DAYS = 7;
 
+/** Longest report window (training_load accepts up to 365 days) plus 120 days to warm up the averages. */
+export const LOAD_HISTORY_DAYS = 365 + 120;
+
+/**
+ * First day of the load chart for a report ending on `end`. It depends on the
+ * end date only, so every tool reports the same CTL, ATL and TSB for a day.
+ */
+export function loadWarmupStart(end: string): string {
+  return addDays(end, -LOAD_HISTORY_DAYS);
+}
+
 /** Daily load series with fitness, fatigue and form. `loads` maps date -> total load. */
 export function performanceChart(loads: Map<string, number>, start: string, end: string): LoadDay[] {
   const kc = 1 - Math.exp(-1 / CTL_DAYS);
@@ -173,7 +184,7 @@ export function loadReport(activities: ActivityRow[], facts: ProfileFacts, start
         load: Math.round(w.load),
         ctl_end: round(lastDay.ctl)!,
         atl_end: round(lastDay.atl)!,
-        tsb_end: round(lastDay.ctl - lastDay.atl)!,
+        tsb_end: round(lastDay.tsb)!,
         activities: w.activities,
         hours: round(w.seconds / 3600, 1)!,
       };
@@ -181,6 +192,6 @@ export function loadReport(activities: ActivityRow[], facts: ProfileFacts, start
     by_sport_last_28_days: bySport,
     load_sources: sources,
     method:
-      "Load per activity: Garmin training load, else TSS, else Banister TRIMP from average HR. CTL/ATL: exponentially weighted 42/7-day averages. TSB = CTL - ATL. ACWR = 7-day mean load / 28-day mean load. Monotony = 7-day mean / SD; strain = 7-day load x monotony (Foster).",
+      "Load per activity: Garmin training load, else TSS, else Banister TRIMP from average HR. CTL/ATL: exponentially weighted 42/7-day averages over the 485 days before as_of. TSB = yesterday's CTL - yesterday's ATL (form going into the day, so the day's own load is not counted). ACWR = 7-day mean load / 28-day mean load. Monotony = 7-day mean / SD; strain = 7-day load x monotony (Foster).",
   };
 }

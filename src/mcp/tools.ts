@@ -6,7 +6,7 @@ import { SCHEMA_GUIDE } from "../archive/schema";
 import { runReadOnly } from "../archive/sql";
 import { getMeta, readActivities, readActivity, readDaily, type ActivityRow } from "../archive/store";
 import { backfillState, ensureActivities, ensureDaily, FIT_PENDING, importFit } from "../archive/sync";
-import { loadReport } from "../analysis/load";
+import { loadReport, loadWarmupStart } from "../analysis/load";
 import { briefing } from "../analysis/readiness";
 import { hrvReport, rhrReport, sleepReport } from "../analysis/recovery";
 import { finite, round } from "../analysis/stats";
@@ -119,7 +119,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       const day = resolveDate(ctx, date);
       const from = addDays(day, -67);
       await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
-      const warmup = addDays(day, -120);
+      const warmup = loadWarmupStart(day);
       await ensureActivities(ctx, warmup, day);
       const { facts } = await loadProfile(ctx);
       const [rows, acts] = await Promise.all([readDaily(ctx.db, from, day), readActivities(ctx.db, warmup, day)]);
@@ -134,7 +134,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       description:
         "Fitness (CTL), fatigue (ATL), form (TSB), acute:chronic workload ratio (ACWR), monotony and strain, weekly load, and load by sport. Use for 'am I overtraining?', 'is my fitness going up?', 'how hard was this block?', taper planning.",
       inputSchema: {
-        days: z.number().int().min(7).max(365).default(90).describe("Days of history to report (a further 120 days warm up the averages)"),
+        days: z.number().int().min(7).max(365).default(90).describe("Days of history to report (the averages always warm up over the 485 days before end_date)"),
         end_date: dateArg.optional(),
       },
       annotations: READ,
@@ -142,7 +142,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     run(deps, async (ctx, { days, end_date }: { days: number; end_date?: string }) => {
       const end = resolveDate(ctx, end_date);
       const start = addDays(end, -(days - 1));
-      const warmup = addDays(start, -120);
+      const warmup = loadWarmupStart(end);
       await ensureActivities(ctx, warmup, end);
       const { facts } = await loadProfile(ctx);
       const acts = await readActivities(ctx.db, warmup, end);
@@ -596,7 +596,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
           checks.push({
             check: "Garmin connection",
             ok: true,
-            detail: `token valid until ${new Date(token.expiresAt * 1000).toISOString()}${scopes ? `; scopes: ${JSON.stringify(scopes)}` : ""}`,
+            detail: `connected; the 24-hour bearer token renews itself (current one valid until ${new Date(token.expiresAt * 1000).toISOString()}). This is not the API key's expiry${scopes ? `; scopes: ${JSON.stringify(scopes)}` : ""}`,
           });
         } catch (err) {
           checks.push({ check: "Garmin connection", ok: false, detail: err instanceof Error ? err.message : String(err) });
