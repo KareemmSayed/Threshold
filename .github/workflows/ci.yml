@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test (inside the Workers runtime)
+        run: npm test
+      - name: Build (dry run)
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+      - name: FIT profile is up to date
+        run: npm run gen:fit-profile && git diff --exit-code src/fit/profile.ts

@@ -1,0 +1,76 @@
+{
+  "name": "threshold",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Your Garmin data, analyzed. A private MCP server for Claude, ChatGPT and every MCP client, on Cloudflare Workers.",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "garmin",
+    "mcp",
+    "model-context-protocol",
+    "cloudflare-workers",
+    "garmin-connect",
+    "personal-api",
+    "hrv",
+    "training-load",
+    "fit",
+    "claude",
+    "chatgpt"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KareemmSayed/Garmin-API.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "gen:fit-profile": "node scripts/gen-fit-profile.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.4",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "fflate": "^0.8.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "@cloudflare/workers-types": "^5.20261023.1",
+    "@garmin/fitsdk": "^21.218.0",
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "GARMIN_API_KEY": {
+        "description": "Your Garmin Personal API key. Create one at https://connect.garmin.com/app/settings/personalApiToken"
+      },
+      "ACCESS_KEY": {
+        "description": "A long random secret (16+ characters) that unlocks your server. You type it when you connect an app. Generate one with: openssl rand -base64 32"
+      },
+      "DB": {
+        "description": "Your private archive of Garmin data (D1)."
+      },
+      "OAUTH_KV": {
+        "description": "OAuth clients and tokens, plus the cached Garmin token (KV)."
+      },
+      "PLAN": {
+        "description": "free (default) or paid. Paid does more work per run on the Workers Paid plan."
+      },
+      "TIMEZONE": {
+        "description": "Optional IANA time zone, e.g. Europe/Berlin. Empty uses your Garmin profile."
+      },
+      "GARMIN_KEY_EXPIRES": {
+        "description": "Optional date your Garmin key expires (YYYY-MM-DD), for early warnings."
+      }
+    }
+  }
+}
