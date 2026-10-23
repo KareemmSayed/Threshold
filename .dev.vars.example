@@ -1,0 +1,4 @@
+# Your Garmin Personal API key. Create one at https://connect.garmin.com/app/settings/personalApiToken
+GARMIN_API_KEY=
+# A long random secret you choose. It unlocks your server. Generate one with: openssl rand -base64 32
+ACCESS_KEY=

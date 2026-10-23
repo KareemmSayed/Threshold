@@ -1,0 +1,27 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you ask, which tool ran, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: server_status output
+      description: Ask your assistant to run the server_status tool and paste the result. It contains no keys or health data, but check it before posting.
+      render: json
+  - type: input
+    id: client
+    attributes:
+      label: AI client
+      placeholder: Claude web, ChatGPT, Cursor, Claude Code, ...
+  - type: dropdown
+    id: plan
+    attributes:
+      label: Cloudflare plan
+      options: [Free, Paid]
