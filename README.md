@@ -60,18 +60,20 @@ You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up) and a 
 
 **1. Get your Garmin key.** Open [Garmin Connect → Personal API](https://connect.garmin.com/app/settings/personalApiToken), click **Create**, and copy the key. Garmin shows it only once.
 
-**2. Deploy.** Click the button and sign in to Cloudflare. It asks for two values:
-
-| Asks for | Paste |
-| --- | --- |
-| `GARMIN_API_KEY` | the key from step 1 |
-| `ACCESS_KEY` | a password you make up, 20+ characters (let your password manager generate one). You type it once per app you connect. |
+**2. Deploy.** Click the button, sign in to Cloudflare, and finish the deploy.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold)
 
-**3. Open your server.** Cloudflare shows its address when the deploy finishes: `https://threshold.<you>.workers.dev`. The page says **Ready** and shows your MCP URL. If a key is missing, the page tells you exactly where to add it (and suggests a strong access key).
+**3. Add your two keys.** In Cloudflare open **Workers & Pages → threshold → Settings → Variables and secrets → Add variable**. Add each one with type **Secret**, then click **Deploy**:
 
-**4. Connect Claude.** Settings → Connectors → **Add custom connector** → paste the MCP URL → enter your access key. Other apps are [below](#connect-your-ai).
+| Name | Value |
+| --- | --- |
+| `GARMIN_API_KEY` | the key from step 1 |
+| `ACCESS_KEY` | a password you make up, 20+ characters. You type it once per app you connect. |
+
+**4. Open your server.** Cloudflare shows its address when the deploy finishes: `https://threshold.<you>.workers.dev`. The page says **Ready** and shows your MCP URL. If a key is missing, the page tells you exactly where to add it (and suggests a strong access key).
+
+**5. Connect Claude.** Settings → Connectors → **Add custom connector** → paste the MCP URL → enter your access key. Other apps are [below](#connect-your-ai).
 
 Your history fills in by itself in the background.
 
