@@ -4,8 +4,8 @@ title: "Threshold: Garmin MCP Server"
 abstract: "Open-source, self-hosted Model Context Protocol server that connects Garmin Connect data to AI assistants and computes training and recovery analysis on Cloudflare Workers."
 authors:
   - name: "Kareem Sayed"
-repository-code: "https://github.com/KareemmSayed/threshold"
-url: "https://kareemmsayed.github.io/threshold/"
+repository-code: "https://github.com/KareemmSayed/Threshold"
+url: "https://kareemmsayed.github.io/Threshold/"
 license: MIT
 version: 0.1.0
 date-released: "2026-10-23"

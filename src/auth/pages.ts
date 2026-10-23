@@ -38,6 +38,9 @@ ul{margin:0 0 14px;padding-left:20px;color:var(--muted)}
 li{margin:4px 0}
 footer{margin-top:20px;font-size:13px;color:var(--muted)}
 a{color:var(--accent)}
+.pick{display:inline-block;margin:6px 0;padding:8px 10px;user-select:all;-webkit-user-select:all}
+.ok{color:var(--accent)}
+small{color:var(--muted)}
 </style>
 </head>
 <body><main><header>${ICON}<span>Threshold</span></header>${body}<footer>Threshold ${SERVER_VERSION} · self-hosted · <a href="${REPO_URL}">source</a></footer></main></body>
@@ -92,21 +95,54 @@ export function messagePage(title: string, message: string): string {
   return layout(title, `<h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>`);
 }
 
-export function landingPage(origin: string, problems: string[]): string {
+export interface SetupStatus {
+  garminKey: boolean;
+  accessKey: "ok" | "missing" | "short";
+  bindings: string[];
+}
+
+/** A strong access key suggestion, generated per page view and never stored. */
+function suggestAccessKey(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map((b) => alphabet[b % alphabet.length]).join("");
+}
+
+const DASHBOARD_STEPS = `In the <a href="https://dash.cloudflare.com/?to=/:account/workers-and-pages">Cloudflare dashboard</a>: <strong>Workers &amp; Pages → threshold → Settings → Variables and secrets → Add</strong>. Choose type <strong>Secret</strong>, fill in the name and value below, then click <strong>Deploy</strong>. Reload this page when done.`;
+
+export function landingPage(origin: string, status: SetupStatus): string {
   const mcp = `${origin}/mcp`;
-  const setup = problems.length
-    ? `<div class="box warn"><strong>Setup incomplete.</strong><ul>${problems.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul></div>`
-    : "";
+  const missing: string[] = [];
+  if (!status.garminKey) {
+    missing.push(
+      `<li><code>GARMIN_API_KEY</code>: your Garmin key. Create one at <a href="https://connect.garmin.com/app/settings/personalApiToken">Garmin Connect → Personal API</a>.</li>`,
+    );
+  }
+  if (status.accessKey !== "ok") {
+    missing.push(
+      `<li><code>ACCESS_KEY</code>: a password you make up${status.accessKey === "short" ? " (the current one is too short; use 20+ characters)" : ", 20+ characters"}. You type it once per app you connect. Here is a strong one you can use:<br><code class="pick">${suggestAccessKey()}</code><br><small>Created just now for you, never stored. Save it in your password manager.</small></li>`,
+    );
+  }
+  for (const b of status.bindings) missing.push(`<li>The <code>${escapeHtml(b)}</code> binding is missing. Redeploy from the repository so Cloudflare creates it.</li>`);
+
+  if (missing.length) {
+    return layout(
+      "Threshold: almost ready",
+      `<h1>Almost ready</h1>
+<p>Your server is running. Add ${missing.length === 1 ? "one more setting" : "these settings"} to finish:</p>
+<p>${DASHBOARD_STEPS}</p>
+<ul>${missing.join("")}</ul>`,
+    );
+  }
   return layout(
-    "Threshold",
-    `<h1>Your Garmin data, analyzed.</h1>
-<p>This is a private, single-user MCP server. Connect an AI assistant to the endpoint below.</p>
-${setup}
-<p>MCP endpoint:<br><code>${escapeHtml(mcp)}</code></p>
-<ul>
-<li><strong>Claude, ChatGPT</strong> (web, desktop, mobile): add a custom connector with this URL, then sign in with your access key.</li>
-<li><strong>Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf</strong>: use the URL with header <code>Authorization: Bearer &lt;ACCESS_KEY&gt;</code>, or sign in with OAuth.</li>
-</ul>
-<p>Setup guides for every client: <a href="${REPO_URL}#connect-your-ai">README</a>.</p>`,
+    "Threshold: ready",
+    `<h1><span class="ok">●</span> Ready</h1>
+<p>Your private Garmin MCP server is set up. Connect your AI with this URL:</p>
+<p><code class="pick">${escapeHtml(mcp)}</code></p>
+<p><strong>Claude</strong> (web, desktop, mobile): Settings → Connectors → Add custom connector → paste the URL → enter your access key.</p>
+<p><strong>ChatGPT</strong>: Settings → Apps &amp; Connectors → Advanced → Developer mode on → Create → paste the URL → OAuth → enter your access key.</p>
+<p><strong>Claude Code</strong>:<br><code class="pick">claude mcp add --transport http threshold ${escapeHtml(mcp)} --header "Authorization: Bearer YOUR_ACCESS_KEY"</code></p>
+<p>Cursor, VS Code, Codex, Gemini CLI, Windsurf and others: <a href="${REPO_URL}#connect-your-ai">setup guide</a>.</p>
+<p>Then ask: <em>"How am I today?"</em></p>`,
   );
 }

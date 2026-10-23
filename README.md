@@ -5,13 +5,13 @@
 **Your Garmin data, analyzed by Claude, ChatGPT and any AI assistant.**
 An open-source Garmin MCP server on the official Garmin Personal API. It answers questions about your training, sleep, HRV and recovery, with numbers computed by code, not guessed by the model.
 
-[![CI](https://github.com/KareemmSayed/threshold/actions/workflows/ci.yml/badge.svg)](https://github.com/KareemmSayed/threshold/actions/workflows/ci.yml)
+[![CI](https://github.com/KareemmSayed/Threshold/actions/workflows/ci.yml/badge.svg)](https://github.com/KareemmSayed/Threshold/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Runs on Cloudflare Workers](https://img.shields.io/badge/runs%20on-Cloudflare%20Workers%20(free)-f38020)](https://developers.cloudflare.com/workers/)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/threshold)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold)
 
-[Website](https://kareemmsayed.github.io/threshold/) · [Quick start](#quick-start-about-5-minutes) · [Connect your AI](#connect-your-ai) · [FAQ](#faq)
+[Website](https://kareemmsayed.github.io/Threshold/) · [Quick start](#quick-start-5-minutes) · [Connect your AI](#connect-your-ai) · [FAQ](#faq)
 
 <img src="docs/og.png" alt="Threshold, a Garmin MCP server for Claude, ChatGPT and any AI assistant" width="720">
 
@@ -54,33 +54,46 @@ Other Garmin MCP servers hand the model raw JSON and hope it does the math. Thre
 
 Clients that support MCP prompts also get **morning check-in**, **weekly review**, **analyze last workout** and **race readiness**.
 
-## Quick start (about 5 minutes)
+## Quick start (5 minutes)
 
-**1. Create a Garmin key.** Open [Garmin Connect → Settings → Personal API](https://connect.garmin.com/app/settings/personalApiToken), create a key, and copy it. Garmin shows it only once.
+You need a free [Cloudflare account](https://dash.cloudflare.com/sign-up) and a Garmin watch that syncs to Garmin Connect.
 
-**2. Choose an access key.** This secret unlocks your server. Make it long and random:
+**1. Get your Garmin key.** Open [Garmin Connect → Personal API](https://connect.garmin.com/app/settings/personalApiToken), click **Create**, and copy the key. Garmin shows it only once.
 
-```bash
-openssl rand -base64 32
-```
+**2. Deploy.** Click the button and sign in to Cloudflare. It asks for two values:
 
-**3. Deploy.** Click **Deploy to Cloudflare** above, sign in, and paste both keys when asked. Cloudflare creates the database and KV store for you.
+| Asks for | Paste |
+| --- | --- |
+| `GARMIN_API_KEY` | the key from step 1 |
+| `ACCESS_KEY` | a password you make up, 20+ characters (let your password manager generate one). You type it once per app you connect. |
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold)
+
+**3. Open your server.** Cloudflare shows its address when the deploy finishes: `https://threshold.<you>.workers.dev`. The page says **Ready** and shows your MCP URL. If a key is missing, the page tells you exactly where to add it (and suggests a strong access key).
+
+**4. Connect Claude.** Settings → Connectors → **Add custom connector** → paste the MCP URL → enter your access key. Other apps are [below](#connect-your-ai).
+
+Your history fills in by itself in the background.
 
 <details>
-<summary>Or deploy from the command line</summary>
+<summary>Add or change a key later</summary>
+
+Cloudflare dashboard → **Workers & Pages** → **threshold** → **Settings** → **Variables and secrets** → **Add**. Choose type **Secret**, enter the name (`GARMIN_API_KEY` or `ACCESS_KEY`) and the value, then **Deploy**.
+
+</details>
+
+<details>
+<summary>Deploy from the command line instead</summary>
 
 ```bash
-git clone https://github.com/KareemmSayed/threshold.git && cd threshold
+git clone https://github.com/KareemmSayed/Threshold.git && cd Threshold
 npm ci
-npx wrangler login
-npx wrangler deploy                      # creates the D1 database and KV namespace on first deploy
+npx wrangler deploy                      # creates the database and KV store on first deploy
 npx wrangler secret put GARMIN_API_KEY   # paste your Garmin key
 npx wrangler secret put ACCESS_KEY       # paste your access key
 ```
 
 </details>
-
-**4. Open your server** at `https://threshold.<your-subdomain>.workers.dev`. The page shows your MCP URL and flags anything missing. Your history starts filling in the background right away.
 
 ## Connect your AI
 
@@ -239,7 +252,7 @@ The first backfill of a long history takes a few hours to a few days on Free, an
 | `SYNC_FIT_FILES` | var | `true` | `false` skips FIT downloads in the background. |
 | `PUBLIC_URL` | var | request origin | Pin the OAuth origin when you use a custom domain. |
 
-Change vars in `wrangler.jsonc` (or the Cloudflare dashboard) and secrets with `npx wrangler secret put <NAME>`.
+Set any of these in the Cloudflare dashboard: **Workers & Pages → threshold → Settings → Variables and secrets → Add** (type **Secret** for the two keys, **Text** for the rest). They survive redeploys.
 
 **Key expiry.** Garmin keys last 30 days to a year and Garmin emails you about a week before. Create a new key, run `npx wrangler secret put GARMIN_API_KEY`, and update `GARMIN_KEY_EXPIRES`. No redeploy needed.
 

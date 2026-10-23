@@ -11,13 +11,7 @@
   "kv_namespaces": [{ "binding": "OAUTH_KV" }],
   // Refresh recent days, backfill history, and decode FIT files in small steps.
   "triggers": { "crons": ["*/10 * * * *"] },
-  "vars": {
-    // "free" keeps every run inside the Workers Free limits. Set "paid" on the $5 plan for faster backfill.
-    "PLAN": "free",
-    // Optional: IANA time zone, e.g. "Europe/Berlin". Empty = use your Garmin profile, else UTC.
-    "TIMEZONE": "",
-    // Optional: the date your Garmin key expires (YYYY-MM-DD), for warnings before it does.
-    "GARMIN_KEY_EXPIRES": ""
-  }
+  // Keep settings you change in the dashboard (TIMEZONE, PLAN, ...) when a new version deploys.
+  "keep_vars": true
   // Secrets (set with `npx wrangler secret put <NAME>`): GARMIN_API_KEY, ACCESS_KEY.
 }
