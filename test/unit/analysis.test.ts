@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { flattenActivity, flattenDaily, sportOf } from "../../src/archive/flatten";
 import { checkReadOnly, SqlRejected } from "../../src/archive/sql";
 import type { ActivityRow, DailyRow } from "../../src/archive/store";
-import { activityLoad, acwrLabel, loadReport, performanceChart } from "../../src/analysis/load";
+import { activityLoad, acwrLabel, loadReport, loadWarmupStart, performanceChart } from "../../src/analysis/load";
 import { briefing } from "../../src/analysis/readiness";
 import { hrvReport, rhrReport, sleepReport } from "../../src/analysis/recovery";
 import { linearTrend, mean, sd } from "../../src/analysis/stats";
@@ -174,6 +174,17 @@ describe("training load", () => {
     expect(report.weekly.length).toBeGreaterThan(4);
     expect(report.load_sources.garmin).toBe(acts.length);
     expect(acwrLabel(1)).toMatch(/sweet spot/);
+  });
+  it("reports the same form for a day whatever the window", () => {
+    const end = "2026-10-20";
+    const acts = eachDate("2025-01-01", end).filter((_, i) => i % 3 !== 0).map((d, i) => act(d, 40 + (i % 7) * 15));
+    const warmup = loadWarmupStart(end);
+    const wide = loadReport(acts, facts, addDays(end, -89), end, warmup);
+    const narrow = loadReport(acts, facts, addDays(end, -27), end, warmup);
+    expect(narrow.current).toEqual(wide.current);
+    expect(briefing(end, [], acts, facts, warmup).training.fitness_ctl).toBe(wide.current.fitness_ctl);
+    // The last week's closing form is the current form, not today's CTL - ATL.
+    expect(wide.weekly.at(-1)!.tsb_end).toBe(wide.current.form_tsb);
   });
 });
 
