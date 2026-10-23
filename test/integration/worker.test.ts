@@ -65,6 +65,20 @@ describe("public pages", () => {
     expect((await call("/nope")).status).toBe(404);
   });
 
+  it("guides the owner through missing keys", async () => {
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(new Request(`${ORIGIN}/`), { ...env, GARMIN_API_KEY: "", ACCESS_KEY: "" }, ctx);
+    const html = await res.text();
+    expect(html).toContain("Almost ready");
+    expect(html).toContain("GARMIN_API_KEY");
+    expect(html).toContain("Variables and secrets");
+    const suggestion = html.match(/class="pick">([A-Za-z0-9]{32})</)?.[1];
+    expect(suggestion).toHaveLength(32);
+    const ready = await (await call("/")).text();
+    expect(ready).toContain("Ready");
+    expect(ready).not.toContain("Almost ready");
+  });
+
   it("publishes OAuth discovery metadata", async () => {
     const resource = (await (await call("/.well-known/oauth-protected-resource/mcp")).json()) as Record<string, unknown>;
     expect(resource.resource).toBe(`${ORIGIN}/mcp`);

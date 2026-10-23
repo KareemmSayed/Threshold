@@ -3,7 +3,7 @@
 > Threshold is an open-source, self-hosted Model Context Protocol (MCP) server that connects Garmin Connect data to AI assistants such as Claude, ChatGPT, Cursor, VS Code, Codex and Gemini CLI. It uses Garmin's official Personal API (no password), runs free on Cloudflare Workers, and computes training and recovery analysis in code: readiness, HRV baseline, training load (CTL/ATL/TSB, ACWR), best efforts, aerobic decoupling, and VO2 max decoded from FIT files.
 
 Key facts:
-- License: MIT. Repository: https://github.com/KareemmSayed/threshold
+- License: MIT. Repository: https://github.com/KareemmSayed/Threshold
 - Hosting: the user's own Cloudflare account (Workers Free plan is enough); one-click "Deploy to Cloudflare" button.
 - Auth: OAuth 2.1 (dynamic client registration, PKCE) for Claude and ChatGPT on web, desktop and mobile; bearer access key for config-file clients; mcp-remote for stdio-only clients.
 - Data source: Garmin Personal API (read-only). Single user only, per Garmin's terms.
@@ -11,9 +11,9 @@ Key facts:
 - Privacy: GPS coordinates and personal identifiers are removed from tool output by default.
 
 ## Docs
-- [README](https://github.com/KareemmSayed/threshold/blob/main/README.md): features, quick start, client setup, FAQ
-- [Connect your AI](https://github.com/KareemmSayed/threshold#connect-your-ai): Claude, ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf, mcp-remote
-- [Security](https://github.com/KareemmSayed/threshold/blob/main/SECURITY.md): threat model and key rotation
+- [README](https://github.com/KareemmSayed/Threshold/blob/main/README.md): features, quick start, client setup, FAQ
+- [Connect your AI](https://github.com/KareemmSayed/Threshold#connect-your-ai): Claude, ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf, mcp-remote
+- [Security](https://github.com/KareemmSayed/Threshold/blob/main/SECURITY.md): threat model and key rotation
 
 ## Tools
 - daily_briefing: readiness today from HRV, resting HR, sleep, Body Battery, training form and load ramp versus personal baselines

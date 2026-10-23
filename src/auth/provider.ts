@@ -13,7 +13,7 @@
 import { AuthorizationError, CimdFetchError, OAuthProvider, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { MIN_ACCESS_KEY_LENGTH, SERVER_VERSION, type Env } from "../env";
 import { handleMcp } from "../mcp/server";
-import { consentPage, consentRetryPage, landingPage, messagePage } from "./pages";
+import { consentPage, consentRetryPage, landingPage, messagePage, type SetupStatus } from "./pages";
 
 export const SCOPE = "garmin:read";
 const OWNER = "owner";
@@ -39,11 +39,21 @@ export async function keyEpoch(env: Env): Promise<string> {
   return [...bytes.slice(0, 8)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** What the landing page checks. */
+export function setupStatus(env: Env): SetupStatus {
+  const access = env.ACCESS_KEY?.trim() ?? "";
+  return {
+    garminKey: Boolean(env.GARMIN_API_KEY?.trim()),
+    accessKey: !access ? "missing" : access.length < MIN_ACCESS_KEY_LENGTH ? "short" : "ok",
+    bindings: [env.DB ? "" : "DB (D1 database)", env.OAUTH_KV ? "" : "OAUTH_KV (KV namespace)"].filter(Boolean),
+  };
+}
+
 /** Problems that stop the server from working, shown on the landing page and /mcp. */
 export function setupProblems(env: Env): string[] {
   const out: string[] = [];
-  if (!env.GARMIN_API_KEY?.trim()) out.push("GARMIN_API_KEY is not set: npx wrangler secret put GARMIN_API_KEY");
-  if (!env.ACCESS_KEY?.trim()) out.push("ACCESS_KEY is not set: npx wrangler secret put ACCESS_KEY (use: openssl rand -base64 32)");
+  if (!env.GARMIN_API_KEY?.trim()) out.push("GARMIN_API_KEY is not set.");
+  if (!env.ACCESS_KEY?.trim()) out.push("ACCESS_KEY is not set.");
   else if (env.ACCESS_KEY.trim().length < MIN_ACCESS_KEY_LENGTH) out.push(`ACCESS_KEY is shorter than ${MIN_ACCESS_KEY_LENGTH} characters; choose a longer one.`);
   if (!env.OAUTH_KV) out.push("The OAUTH_KV binding is missing.");
   if (!env.DB) out.push("The DB (D1) binding is missing.");
@@ -126,7 +136,7 @@ const defaultHandler = {
     const url = new URL(request.url);
     switch (url.pathname) {
       case "/":
-        return html(landingPage(url.origin, setupProblems(env)));
+        return html(landingPage(url.origin, setupStatus(env)));
       case "/authorize":
         return authorize(request, env);
       case "/health":

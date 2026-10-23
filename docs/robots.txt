@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://kareemmsayed.github.io/threshold/sitemap.xml
+Sitemap: https://kareemmsayed.github.io/Threshold/sitemap.xml

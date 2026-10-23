@@ -4,7 +4,7 @@
   "private": true,
   "description": "Garmin MCP server: connect Garmin Connect to Claude, ChatGPT and any AI assistant. Readiness, HRV, training load and FIT analysis, free on Cloudflare Workers.",
   "license": "MIT",
-  "homepage": "https://kareemmsayed.github.io/threshold/",
+  "homepage": "https://kareemmsayed.github.io/Threshold/",
   "type": "module",
   "keywords": [
     "garmin",
@@ -27,7 +27,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/KareemmSayed/threshold.git"
+    "url": "git+https://github.com/KareemmSayed/Threshold.git"
   },
   "engines": {
     "node": ">=20"
@@ -61,22 +61,13 @@
         "description": "Your Garmin Personal API key. Create one at https://connect.garmin.com/app/settings/personalApiToken"
       },
       "ACCESS_KEY": {
-        "description": "A long random secret (16+ characters) that unlocks your server. You type it when you connect an app. Generate one with: openssl rand -base64 32"
+        "description": "A password you make up, 20+ characters (let your password manager generate one). You type it once per app you connect."
       },
       "DB": {
         "description": "Your private archive of Garmin data (D1)."
       },
       "OAUTH_KV": {
         "description": "OAuth clients and tokens, plus the cached Garmin token (KV)."
-      },
-      "PLAN": {
-        "description": "free (default) or paid. Paid does more work per run on the Workers Paid plan."
-      },
-      "TIMEZONE": {
-        "description": "Optional IANA time zone, e.g. Europe/Berlin. Empty uses your Garmin profile."
-      },
-      "GARMIN_KEY_EXPIRES": {
-        "description": "Optional date your Garmin key expires (YYYY-MM-DD), for early warnings."
       }
     }
   }

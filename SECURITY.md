@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report vulnerabilities privately through
-[GitHub security advisories](https://github.com/KareemmSayed/threshold/security/advisories/new).
+[GitHub security advisories](https://github.com/KareemmSayed/Threshold/security/advisories/new).
 Do not open a public issue. You will get an answer within a few days.
 
 ## Design
@@ -26,6 +26,6 @@ Threshold is a single-user server that each person deploys to their own Cloudfla
 
 ## Choosing an access key
 
-Use at least 32 random characters, for example `openssl rand -base64 32`. Anyone with the access key can read your
+Use at least 20 random characters; let a password manager generate them, or copy the suggestion your server's page shows while the key is missing. Anyone with the access key can read your
 Garmin data through your server. To rotate it, run `npx wrangler secret put ACCESS_KEY`. Every OAuth token issued
 before the rotation stops working at once, and connected apps must sign in again.
