@@ -6,7 +6,7 @@ import { SCHEMA_GUIDE } from "../archive/schema";
 import { runReadOnly } from "../archive/sql";
 import { getMeta, readActivities, readActivity, readDaily, type ActivityRow } from "../archive/store";
 import { backfillState, ensureActivities, ensureDaily, FIT_PENDING, importFit } from "../archive/sync";
-import { loadReport, loadWarmupStart } from "../analysis/load";
+import { loadChart, loadReport, loadWarmupStart } from "../analysis/load";
 import { briefing } from "../analysis/readiness";
 import { hrvReport, rhrReport, sleepReport } from "../analysis/recovery";
 import { finite, round } from "../analysis/stats";
@@ -22,7 +22,7 @@ import { DAY_ENDPOINTS, RANGE_DATASETS, downloadActivity, fetchRange, getActivit
 import { addDays, daysBetween, isIsoDate, weekStart } from "../util/dates";
 import { fail, ok, UserError } from "./format";
 
-const dateArg = z
+export const dateArg = z
   .string()
   .refine((v) => v === "today" || v === "yesterday" || isIsoDate(v), "Use YYYY-MM-DD, 'today' or 'yesterday'")
   .describe("YYYY-MM-DD, 'today' or 'yesterday' (in the athlete's time zone)");
@@ -105,6 +105,184 @@ const DAILY_FOR_METRIC: Record<string, ArchivedDataset> = {
   body_fat_pct: "weight",
 };
 
+// The analysis behind each tool, shared with show_view's presets so a view shows exactly what the tool computed.
+
+export async function briefingData(ctx: AppContext, { date }: { date?: string }) {
+  const day = resolveDate(ctx, date);
+  const from = addDays(day, -67);
+  await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
+  const warmup = loadWarmupStart(day);
+  await ensureActivities(ctx, warmup, day);
+  const { facts } = await loadProfile(ctx);
+  const [rows, acts] = await Promise.all([readDaily(ctx.db, from, day), readActivities(ctx.db, warmup, day)]);
+  return { data: briefing(day, rows, acts, facts, warmup, { baselineFrom: hrvBaselineFrom(ctx.env) }) };
+}
+
+/** `withChart` adds the daily CTL/ATL/TSB series for views; the tool leaves it out to stay compact. */
+export async function loadData(ctx: AppContext, { days, end_date }: { days: number; end_date?: string }, withChart = false) {
+  const end = resolveDate(ctx, end_date);
+  const start = addDays(end, -(days - 1));
+  const warmup = loadWarmupStart(end);
+  await ensureActivities(ctx, warmup, end);
+  const { facts } = await loadProfile(ctx);
+  const acts = await readActivities(ctx.db, warmup, end);
+  return { data: loadReport(acts, facts, start, end, warmup), chart: withChart ? loadChart(acts, facts, start, end, warmup) : undefined };
+}
+
+export async function recoveryData(ctx: AppContext, { date }: { date?: string }) {
+  const day = resolveDate(ctx, date);
+  const from = addDays(day, -67);
+  await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
+  const rows = await readDaily(ctx.db, from, day);
+  return { data: { date: day, hrv: hrvReport(rows, day, { baselineFrom: hrvBaselineFrom(ctx.env) }), resting_hr: rhrReport(rows, day), sleep: sleepReport(rows, day) } };
+}
+
+export async function weeklyData(ctx: AppContext, { weeks, end_date }: { weeks: number; end_date?: string }) {
+  const end = resolveDate(ctx, end_date);
+  const first = addDays(weekStart(end), -7 * weeks); // one extra week for the first comparison
+  await ensureDaily(ctx, ARCHIVED_DATASETS, first, end);
+  await ensureActivities(ctx, first, end);
+  const { facts } = await loadProfile(ctx);
+  const [rows, acts, efforts] = await Promise.all([
+    readDaily(ctx.db, first, end),
+    readActivities(ctx.db, first, end),
+    ctx.db.prepare(`SELECT * FROM best_efforts WHERE date BETWEEN ? AND ?`).bind(first, end).all<BestEffortRow>(),
+  ]);
+  const report = weeklyReport(rows, acts, efforts.results, facts, first, end);
+  report.weeks = report.weeks.slice(1);
+  return { data: report };
+}
+
+export async function trendData(ctx: AppContext, a: { metric: string; days: number; end_date?: string; granularity?: Granularity; compare_previous: boolean }) {
+  const end = resolveDate(ctx, a.end_date);
+  const start = addDays(end, -(a.days - 1));
+  const from = a.compare_previous ? addDays(start, -a.days) : start;
+  const metric = METRICS[a.metric];
+  const fromActivities = typeof metric.source !== "function";
+  if (fromActivities) await ensureActivities(ctx, from, end);
+  else await ensureDaily(ctx, [DAILY_FOR_METRIC[a.metric] ?? "daily_summaries"], from, end);
+  const { facts } = await loadProfile(ctx);
+  const [rows, acts] = await Promise.all([fromActivities ? [] : readDaily(ctx.db, from, end), fromActivities ? readActivities(ctx.db, from, end) : []]);
+  const cur = (r: { date: string | null }) => (r.date ?? "") >= start;
+  return {
+    data: metricTrend(
+      a.metric,
+      rows.filter(cur),
+      acts.filter(cur),
+      facts,
+      start,
+      end,
+      a.granularity,
+      a.compare_previous ? rows.filter((r) => !cur(r)) : undefined,
+      a.compare_previous ? acts.filter((r) => !cur(r)) : undefined,
+    ),
+  };
+}
+
+export async function activityData(ctx: AppContext, a: { activity_id?: number; sport?: string; samples: number; include_route: boolean; split_unit?: "km" | "mi"; include_raw_hidden: boolean }) {
+  let id = a.activity_id;
+  if (!id) {
+    await ensureActivities(ctx, addDays(ctx.today, -60), ctx.today);
+    const latest = await ctx.db
+      .prepare(`SELECT activity_id FROM activities ${a.sport ? "WHERE sport = ?" : ""} ORDER BY start_local DESC LIMIT 1`)
+      .bind(...(a.sport ? [a.sport] : []))
+      .first<{ activity_id: number }>();
+    if (!latest) throw new UserError(`No ${a.sport ?? ""} activities in the last 60 days. Pass an activity_id from list_activities.`.replace("  ", " "));
+    id = latest.activity_id;
+  }
+  const { facts } = await loadProfile(ctx);
+  const row = await readActivity(ctx.db, id);
+  const unit = a.split_unit ?? facts.unit;
+  const garmin = row ? activitySummary(row, unit) : undefined;
+  const simple = !a.samples && !a.include_route && !a.include_raw_hidden && unit === facts.unit;
+  if (simple && row?.fit_status === "done" && row.fit_json) {
+    return { data: { activity: garmin, analysis: JSON.parse(row.fit_json), source: "archive (decoded FIT file)" } };
+  }
+  if (simple && row) {
+    const imported = await importFit(ctx, id);
+    if (imported.analysis) {
+      const { archive: _archive, samples: _samples, ...analysis } = imported.analysis;
+      return { data: { activity: garmin, analysis, source: "FIT file" } };
+    }
+    return { data: { activity: garmin, analysis: null }, notes: [`The FIT file could not be analyzed: ${imported.error ?? imported.status}`] };
+  }
+  const fit = decodeFit(await extractFit(await downloadActivity(ctx.garmin(), id)));
+  const sport = String(fit.sessions[0]?.sport ?? "");
+  const { archive: _archive, ...analysis } = analyzeFit(fit, {
+    hrZoneFloors: zoneFloorsFor(facts, sport),
+    ftp: facts.ftp,
+    splitUnit: unit,
+    samples: a.samples,
+    route: a.include_route,
+    rawHidden: a.include_raw_hidden,
+  });
+  return { data: { activity: garmin ?? { id }, analysis, source: "FIT file" } };
+}
+
+export async function recordsData(ctx: AppContext, a: { sport: string; start_date?: string; end_date?: string; top: number; import_missing: boolean }) {
+  const start = a.start_date ? resolveDate(ctx, a.start_date) : "1900-01-01";
+  const end = resolveDate(ctx, a.end_date);
+  const notes: string[] = [];
+  if (a.import_missing) {
+    const { results } = await ctx.db
+      .prepare(`SELECT activity_id FROM activities WHERE sport = ? AND ${FIT_PENDING} AND date BETWEEN ? AND ? ORDER BY start_local DESC LIMIT ?`)
+      .bind(a.sport, start, end, ctx.limits.toolFitFiles)
+      .all<{ activity_id: number }>();
+    for (const { activity_id } of results) {
+      if (ctx.budget.remaining < 2) break;
+      await importFit(ctx, activity_id);
+    }
+  }
+  const { results: efforts } = await ctx.db
+    .prepare(
+      `SELECT e.effort, e.kind, e.value, e.date, e.activity_id, a.name FROM best_efforts e LEFT JOIN activities a USING (activity_id) WHERE e.sport = ? AND e.date BETWEEN ? AND ?`,
+    )
+    .bind(a.sport, start, end)
+    .all<{ effort: string; kind: string; value: number; date: string; activity_id: number; name: string | null }>();
+  const byEffort = new Map<string, typeof efforts>();
+  for (const e of efforts) byEffort.set(e.effort, [...(byEffort.get(e.effort) ?? []), e]);
+  const records: Record<string, unknown> = {};
+  for (const [effort, list] of byEffort) {
+    const sorted = list.sort((x, y) => (x.kind === "power_w" ? y.value - x.value : x.value - y.value)).slice(0, a.top);
+    records[effort] = sorted.map((e) => ({
+      [e.kind === "power_w" ? "watts" : "time"]: e.kind === "power_w" ? e.value : formatDuration(e.value),
+      date: e.date,
+      activity_id: e.activity_id,
+      name: e.name,
+    }));
+  }
+  const extreme = async (column: string) =>
+    ctx.db
+      .prepare(`SELECT activity_id, date, name, ${column} AS value FROM activities WHERE sport = ? AND date BETWEEN ? AND ? AND ${column} IS NOT NULL ORDER BY ${column} DESC LIMIT 1`)
+      .bind(a.sport, start, end)
+      .first<{ activity_id: number; date: string; name: string; value: number }>();
+  const [longest, longestTime, climb, coverage] = await Promise.all([
+    extreme("distance_m"),
+    extreme("duration_s"),
+    extreme("elevation_gain_m"),
+    ctx.db
+      .prepare(`SELECT COUNT(*) AS total, SUM(fit_status = 'done') AS decoded, SUM(${FIT_PENDING}) AS pending FROM activities WHERE sport = ? AND date BETWEEN ? AND ?`)
+      .bind(a.sport, start, end)
+      .first<{ total: number; decoded: number | null; pending: number | null }>(),
+  ]);
+  if ((coverage?.pending ?? 0) > 0) {
+    notes.push(`${coverage?.pending} ${a.sport} activities still wait for FIT import, so records may improve as the background sync continues.`);
+  }
+  return {
+    data: {
+      sport: a.sport,
+      from: start === "1900-01-01" ? "all history" : start,
+      to: end,
+      best_efforts: records,
+      longest_distance: longest ? { km: km(longest.value), date: longest.date, activity_id: longest.activity_id, name: longest.name } : null,
+      longest_duration: longestTime ? { duration: formatDuration(longestTime.value), date: longestTime.date, activity_id: longestTime.activity_id, name: longestTime.name } : null,
+      most_climbing: climb ? { meters: Math.round(climb.value), date: climb.date, activity_id: climb.activity_id, name: climb.name } : null,
+      coverage: { activities: coverage?.total ?? 0, fit_decoded: coverage?.decoded ?? 0, fit_pending: coverage?.pending ?? 0 },
+    },
+    notes,
+  };
+}
+
 export function registerTools(server: McpServer, deps: ToolDeps): void {
   server.registerTool(
     "daily_briefing",
@@ -115,16 +293,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       inputSchema: { date: dateArg.optional().describe("Day to brief. Default: today") },
       annotations: READ,
     },
-    run(deps, async (ctx, { date }: { date?: string }) => {
-      const day = resolveDate(ctx, date);
-      const from = addDays(day, -67);
-      await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
-      const warmup = loadWarmupStart(day);
-      await ensureActivities(ctx, warmup, day);
-      const { facts } = await loadProfile(ctx);
-      const [rows, acts] = await Promise.all([readDaily(ctx.db, from, day), readActivities(ctx.db, warmup, day)]);
-      return { data: briefing(day, rows, acts, facts, warmup, { baselineFrom: hrvBaselineFrom(ctx.env) }) };
-    }),
+    run(deps, briefingData),
   );
 
   server.registerTool(
@@ -139,15 +308,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       },
       annotations: READ,
     },
-    run(deps, async (ctx, { days, end_date }: { days: number; end_date?: string }) => {
-      const end = resolveDate(ctx, end_date);
-      const start = addDays(end, -(days - 1));
-      const warmup = loadWarmupStart(end);
-      await ensureActivities(ctx, warmup, end);
-      const { facts } = await loadProfile(ctx);
-      const acts = await readActivities(ctx.db, warmup, end);
-      return { data: loadReport(acts, facts, start, end, warmup) };
-    }),
+    run(deps, loadData),
   );
 
   server.registerTool(
@@ -159,13 +320,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       inputSchema: { date: dateArg.optional().describe("Last day of the 7-day window. Default: today") },
       annotations: READ,
     },
-    run(deps, async (ctx, { date }: { date?: string }) => {
-      const day = resolveDate(ctx, date);
-      const from = addDays(day, -67);
-      await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
-      const rows = await readDaily(ctx.db, from, day);
-      return { data: { date: day, hrv: hrvReport(rows, day, { baselineFrom: hrvBaselineFrom(ctx.env) }), resting_hr: rhrReport(rows, day), sleep: sleepReport(rows, day) } };
-    }),
+    run(deps, recoveryData),
   );
 
   server.registerTool(
@@ -180,21 +335,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       },
       annotations: READ,
     },
-    run(deps, async (ctx, { weeks, end_date }: { weeks: number; end_date?: string }) => {
-      const end = resolveDate(ctx, end_date);
-      const first = addDays(weekStart(end), -7 * weeks); // one extra week for the first comparison
-      await ensureDaily(ctx, ARCHIVED_DATASETS, first, end);
-      await ensureActivities(ctx, first, end);
-      const { facts } = await loadProfile(ctx);
-      const [rows, acts, efforts] = await Promise.all([
-        readDaily(ctx.db, first, end),
-        readActivities(ctx.db, first, end),
-        ctx.db.prepare(`SELECT * FROM best_efforts WHERE date BETWEEN ? AND ?`).bind(first, end).all<BestEffortRow>(),
-      ]);
-      const report = weeklyReport(rows, acts, efforts.results, facts, first, end);
-      report.weeks = report.weeks.slice(1);
-      return { data: report };
-    }),
+    run(deps, weeklyData),
   );
 
   const metricNames = Object.keys(METRICS) as [string, ...string[]];
@@ -212,31 +353,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       },
       annotations: READ,
     },
-    run(deps, async (ctx, a: { metric: string; days: number; end_date?: string; granularity?: Granularity; compare_previous: boolean }) => {
-      const end = resolveDate(ctx, a.end_date);
-      const start = addDays(end, -(a.days - 1));
-      const from = a.compare_previous ? addDays(start, -a.days) : start;
-      const metric = METRICS[a.metric];
-      const fromActivities = typeof metric.source !== "function";
-      if (fromActivities) await ensureActivities(ctx, from, end);
-      else await ensureDaily(ctx, [DAILY_FOR_METRIC[a.metric] ?? "daily_summaries"], from, end);
-      const { facts } = await loadProfile(ctx);
-      const [rows, acts] = await Promise.all([fromActivities ? [] : readDaily(ctx.db, from, end), fromActivities ? readActivities(ctx.db, from, end) : []]);
-      const cur = (r: { date: string | null }) => (r.date ?? "") >= start;
-      return {
-        data: metricTrend(
-          a.metric,
-          rows.filter(cur),
-          acts.filter(cur),
-          facts,
-          start,
-          end,
-          a.granularity,
-          a.compare_previous ? rows.filter((r) => !cur(r)) : undefined,
-          a.compare_previous ? acts.filter((r) => !cur(r)) : undefined,
-        ),
-      };
-    }),
+    run(deps, trendData),
   );
 
   server.registerTool(
@@ -315,48 +432,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       },
       annotations: READ,
     },
-    run(
-      deps,
-      async (ctx, a: { activity_id?: number; sport?: string; samples: number; include_route: boolean; split_unit?: "km" | "mi"; include_raw_hidden: boolean }) => {
-        let id = a.activity_id;
-        if (!id) {
-          await ensureActivities(ctx, addDays(ctx.today, -60), ctx.today);
-          const latest = await ctx.db
-            .prepare(`SELECT activity_id FROM activities ${a.sport ? "WHERE sport = ?" : ""} ORDER BY start_local DESC LIMIT 1`)
-            .bind(...(a.sport ? [a.sport] : []))
-            .first<{ activity_id: number }>();
-          if (!latest) throw new UserError(`No ${a.sport ?? ""} activities in the last 60 days. Pass an activity_id from list_activities.`.replace("  ", " "));
-          id = latest.activity_id;
-        }
-        const { facts } = await loadProfile(ctx);
-        const row = await readActivity(ctx.db, id);
-        const unit = a.split_unit ?? facts.unit;
-        const garmin = row ? activitySummary(row, unit) : undefined;
-        const simple = !a.samples && !a.include_route && !a.include_raw_hidden && unit === facts.unit;
-        if (simple && row?.fit_status === "done" && row.fit_json) {
-          return { data: { activity: garmin, analysis: JSON.parse(row.fit_json), source: "archive (decoded FIT file)" } };
-        }
-        if (simple && row) {
-          const imported = await importFit(ctx, id);
-          if (imported.analysis) {
-            const { archive: _archive, samples: _samples, ...analysis } = imported.analysis;
-            return { data: { activity: garmin, analysis, source: "FIT file" } };
-          }
-          return { data: { activity: garmin, analysis: null }, notes: [`The FIT file could not be analyzed: ${imported.error ?? imported.status}`] };
-        }
-        const fit = decodeFit(await extractFit(await downloadActivity(ctx.garmin(), id)));
-        const sport = String(fit.sessions[0]?.sport ?? "");
-        const { archive: _archive, ...analysis } = analyzeFit(fit, {
-          hrZoneFloors: zoneFloorsFor(facts, sport),
-          ftp: facts.ftp,
-          splitUnit: unit,
-          samples: a.samples,
-          route: a.include_route,
-          rawHidden: a.include_raw_hidden,
-        });
-        return { data: { activity: garmin ?? { id }, analysis, source: "FIT file" } };
-      },
-    ),
+    run(deps, activityData),
   );
 
   server.registerTool(
@@ -374,69 +450,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       },
       annotations: READ,
     },
-    run(deps, async (ctx, a: { sport: string; start_date?: string; end_date?: string; top: number; import_missing: boolean }) => {
-      const start = a.start_date ? resolveDate(ctx, a.start_date) : "1900-01-01";
-      const end = resolveDate(ctx, a.end_date);
-      const notes: string[] = [];
-      if (a.import_missing) {
-        const { results } = await ctx.db
-          .prepare(`SELECT activity_id FROM activities WHERE sport = ? AND ${FIT_PENDING} AND date BETWEEN ? AND ? ORDER BY start_local DESC LIMIT ?`)
-          .bind(a.sport, start, end, ctx.limits.toolFitFiles)
-          .all<{ activity_id: number }>();
-        for (const { activity_id } of results) {
-          if (ctx.budget.remaining < 2) break;
-          await importFit(ctx, activity_id);
-        }
-      }
-      const { results: efforts } = await ctx.db
-        .prepare(
-          `SELECT e.effort, e.kind, e.value, e.date, e.activity_id, a.name FROM best_efforts e LEFT JOIN activities a USING (activity_id) WHERE e.sport = ? AND e.date BETWEEN ? AND ?`,
-        )
-        .bind(a.sport, start, end)
-        .all<{ effort: string; kind: string; value: number; date: string; activity_id: number; name: string | null }>();
-      const byEffort = new Map<string, typeof efforts>();
-      for (const e of efforts) byEffort.set(e.effort, [...(byEffort.get(e.effort) ?? []), e]);
-      const records: Record<string, unknown> = {};
-      for (const [effort, list] of byEffort) {
-        const sorted = list.sort((x, y) => (x.kind === "power_w" ? y.value - x.value : x.value - y.value)).slice(0, a.top);
-        records[effort] = sorted.map((e) => ({
-          [e.kind === "power_w" ? "watts" : "time"]: e.kind === "power_w" ? e.value : formatDuration(e.value),
-          date: e.date,
-          activity_id: e.activity_id,
-          name: e.name,
-        }));
-      }
-      const extreme = async (column: string) =>
-        ctx.db
-          .prepare(`SELECT activity_id, date, name, ${column} AS value FROM activities WHERE sport = ? AND date BETWEEN ? AND ? AND ${column} IS NOT NULL ORDER BY ${column} DESC LIMIT 1`)
-          .bind(a.sport, start, end)
-          .first<{ activity_id: number; date: string; name: string; value: number }>();
-      const [longest, longestTime, climb, coverage] = await Promise.all([
-        extreme("distance_m"),
-        extreme("duration_s"),
-        extreme("elevation_gain_m"),
-        ctx.db
-          .prepare(`SELECT COUNT(*) AS total, SUM(fit_status = 'done') AS decoded, SUM(${FIT_PENDING}) AS pending FROM activities WHERE sport = ? AND date BETWEEN ? AND ?`)
-          .bind(a.sport, start, end)
-          .first<{ total: number; decoded: number | null; pending: number | null }>(),
-      ]);
-      if ((coverage?.pending ?? 0) > 0) {
-        notes.push(`${coverage?.pending} ${a.sport} activities still wait for FIT import, so records may improve as the background sync continues.`);
-      }
-      return {
-        data: {
-          sport: a.sport,
-          from: start === "1900-01-01" ? "all history" : start,
-          to: end,
-          best_efforts: records,
-          longest_distance: longest ? { km: km(longest.value), date: longest.date, activity_id: longest.activity_id, name: longest.name } : null,
-          longest_duration: longestTime ? { duration: formatDuration(longestTime.value), date: longestTime.date, activity_id: longestTime.activity_id, name: longestTime.name } : null,
-          most_climbing: climb ? { meters: Math.round(climb.value), date: climb.date, activity_id: climb.activity_id, name: climb.name } : null,
-          coverage: { activities: coverage?.total ?? 0, fit_decoded: coverage?.decoded ?? 0, fit_pending: coverage?.pending ?? 0 },
-        },
-        notes,
-      };
-    }),
+    run(deps, recordsData),
   );
 
   const datasetNames = Object.keys(RANGE_DATASETS) as [string, ...string[]];

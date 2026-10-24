@@ -51,6 +51,7 @@ Other Garmin MCP servers hand the model raw JSON and hope it does the math. Thre
 | `query_archive` | Read-only SQL over your whole history, for everything else. |
 | `get_health_data`, `get_day_detail`, `get_activity`, `get_profile` | Garmin's own records, compacted: sleep stages, HRV readings, heart rate, SpO2, stress, Body Battery, weight, hydration, nutrition, menstrual cycle, fitness age. |
 | `sync_now`, `server_status`, `garmin_api_get` | Pull fresh data now, health checks and archive coverage, and raw access to any Personal API path. |
+| `show_view` | Shows the answer as a card in this project's design, inside the chat in apps that support [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (Claude, ChatGPT, VS Code, Goose) and as a private link everywhere else. Presets build the card from the analysis tools, so the server supplies every number; custom blocks cover any other question. |
 
 Clients that support MCP prompts also get **morning check-in**, **weekly review**, **analyze last workout** and **race readiness**.
 
@@ -214,7 +215,7 @@ Anything else: Threshold speaks the standard **Streamable HTTP** transport with 
 ```
  Claude, ChatGPT, Cursor, ...                 Cloudflare Workers (your account)                     Garmin
 ┌──────────────────────────┐  OAuth or     ┌─────────────────────────────────────────┐   API key ┌──────────────┐
-│ "How am I today?"        │──bearer key──▶│  /mcp   16 tools, 4 prompts             │──────────▶│ Personal API │
+│ "How am I today?"        │──bearer key──▶│  /mcp   17 tools, 4 prompts             │──────────▶│ Personal API │
 └──────────────────────────┘               │   ├─ analysis: load, HRV, readiness...  │  24 h     │  (read-only) │
                                            │   ├─ FIT decoder: hidden VO2 max, PRs   │  token    └──────────────┘
                                            │   └─ D1 archive ◀── cron every 10 min   │◀──────────────┘
@@ -224,6 +225,7 @@ Anything else: Threshold speaks the standard **Streamable HTTP** transport with 
 * **Archive first.** Tools read from a D1 (SQLite) archive and fetch only missing or recent days from Garmin, split to Garmin's range limits. Recent days are re-checked because watches sync late.
 * **Background sync.** Every 10 minutes the cron job refreshes recent days, walks back through your history a little at a time, and decodes FIT files, newest first. Each run stays inside the Workers request and CPU limits, and backs off when Garmin rate-limits the key.
 * **Fast FIT decoder.** A small decoder written for Workers reads a one-hour activity in about a millisecond, 20× faster than Garmin's JavaScript SDK, which is what makes FIT analysis possible on the free tier.
+* **Cards, not walls of text.** `show_view` ships its own HTML (an MCP Apps `ui://` resource), so every assistant shows the same design without installing anything. The model only picks a preset and the sections the user asked about, or fills fixed block types; it never writes HTML. Apps without MCP Apps support get a private link to the same card.
 * **Hidden metrics.** Garmin writes VO2 max and performance condition into the FIT file's undocumented message 140 but leaves them out of the API. Threshold decodes them (VO2 max = field 7 × 3.5 / 65536, confirmed by the community) and labels anything less certain as experimental. If Garmin strips that data from API downloads, the tool says so.
 
 ## Does it fit Cloudflare's free tier?
@@ -254,6 +256,7 @@ The first backfill of a long history takes a few hours to a few days on Free, an
 | `HRV_BASELINE_FROM` | var | – | `YYYY-MM-DD`; HRV baselines ignore earlier nights. Set it when you change watch. |
 | `SYNC_FIT_FILES` | var | `true` | `false` skips FIT downloads in the background. |
 | `PUBLIC_URL` | var | request origin | Pin the OAuth origin when you use a custom domain. |
+| `VIEW_LINK_HOURS` | var | `24` | How long `show_view` private links work (max 720). `0` turns links off. |
 
 Set any of these in the Cloudflare dashboard: **Workers & Pages → threshold → Settings → Variables and secrets → Add** (type **Secret** for the two keys, **Text** for the rest). They survive redeploys.
 
@@ -266,6 +269,7 @@ Set any of these in the Cloudflare dashboard: **Workers & Pages → threshold �
 * **Read-only.** The Personal API cannot change your Garmin account, and the SQL tool refuses anything but `SELECT`.
 * **Only you can connect apps.** The OAuth consent page asks for your access key, shows where tokens will be sent, and warns about local apps. Tokens are bound to your server's `/mcp` URL.
 * **Less exposure to cloud models.** GPS coordinates, place names and personal identifiers are removed from responses unless you ask for them.
+* **Private links expire.** A `show_view` link is a random 192-bit token (only its hash is stored), opens one card, expires after `VIEW_LINK_HOURS`, and stops working when you change the access key. Anyone you send it to can see that card, so share it like any private link. Cards built from presets never include GPS data or activity names.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
@@ -307,7 +311,10 @@ src/
   archive/          D1 schema, archive-first sync, backfill, read-only SQL
   fit/              FIT decoder and activity analysis
   analysis/         training load, recovery, readiness, weekly report, trends
+  view/             show_view: card spec, presets, private links; client/ holds the card's CSS and script
 ```
+
+After editing `src/view/client/`, run `npm run gen:view` to rebuild `src/view/assets.ts`; CI checks that it is up to date.
 
 Contributions are welcome. Please open an issue first for larger changes.
 
