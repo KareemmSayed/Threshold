@@ -1,0 +1,46 @@
+/*
+ * Video-only rules layered over docs/assets/site.css, which is imported unchanged.
+ *
+ * 1. Time: every CSS animation and transition on the site is frozen here and re-driven from the frame
+ *    number in React (inline styles), so a frame renders the same in any tab, in any order.
+ * 2. Re-composition: the portrait cuts reuse the site's own narrow-screen rules (site.css @media
+ *    max-width: 1020px), scoped to .v-stack, because a 1080 px wide frame never triggers them.
+ */
+
+*, *::before, *::after { animation: none !important; transition: none !important; }
+html, body { overflow: hidden; scroll-behavior: auto; }
+.typed::after { opacity: var(--blink, 1); }
+
+/* Portrait: hero stacks (site.css 1020px rules) */
+.v-stack .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+.v-stack .hero-chat { justify-self: center; }
+
+/* Portrait: raw JSON and the readout share one slot */
+.v-stack .versus { grid-template-columns: 1fr; }
+.v-stack .vs-arrow { transform: rotate(90deg); justify-self: center; }
+
+/* Portrait: bento (site.css 1020px rules) */
+.v-stack .b-ready, .v-stack .b-vo2 { grid-column: span 12; }
+.v-stack .b-load, .v-stack .b-fit { grid-column: span 6; }
+.v-stack .b-sql { grid-column: span 12; }
+
+/* Portrait: setup steps become one row (site.css 1020px rules) */
+.v-stack .guide { grid-template-columns: 1fr; }
+.v-stack .steps { flex-direction: row; overflow: hidden; gap: 6px; padding-bottom: 2px; }
+.v-stack .steps li { flex: none; }
+.v-stack .steps button { padding: 10px 14px 13px; gap: 10px; align-items: center; }
+.v-stack .steps .n { font-size: 17px; min-width: 0; }
+.v-stack .steps .t b { font-size: 14px; white-space: nowrap; }
+.v-stack .steps li.on .t span { display: none; }
+.v-stack .steps .bar { left: 12px; right: 12px; bottom: 4px; }
+
+/* Portrait: facts two by two (site.css 1020px rules) */
+.v-stack .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* Portrait: the page is laid out 864 px wide, a tablet-width page, and the camera fills the frame with
+   it (a 1.25× floor), so type reads at phone size. The hero copy is centred over its stacked card. */
+.v-stack .wrap { max-width: 864px; }
+.v-stack .hero-copy { align-items: center; text-align: center; }
+.v-stack .hero-copy .tag { align-self: center; }
+.v-stack .hero-copy .cta, .v-stack .hero-copy .trust { justify-content: center; }
+.v-stack .hero-copy .lead { margin: 0 auto; }
