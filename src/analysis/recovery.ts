@@ -2,9 +2,12 @@
  * Recovery signals against your own baseline.
  *
  * HRV follows the approach used in HRV research (Plews, Buchheit, Kiviniemi):
- * work on ln(rMSSD), compare the 7-day rolling mean with a 60-day baseline, and
- * treat +/- 0.5 SD of the baseline as the normal band (the smallest worthwhile
- * change). Resting HR and sleep are compared with the same baseline window.
+ * work on the natural log of the nightly value, compare the 7-day rolling mean
+ * with a 60-day baseline, and treat +/- 0.5 SD of the baseline as the normal
+ * band (the smallest worthwhile change). The nightly value is Garmin's overnight
+ * HRV average. Garmin does not document how it is computed and Threshold never
+ * sees the beat-to-beat intervals, so it is not recomputed or checked as rMSSD.
+ * Resting HR and sleep are compared with the same baseline window.
  */
 import type { DailyRow } from "../archive/store";
 import { addDays } from "../util/dates";
@@ -12,6 +15,11 @@ import { finite, linearTrend, mean, round, sd } from "./stats";
 
 export const BASELINE_DAYS = 60;
 const ROLLING_DAYS = 7;
+/** Fewer nights than this in the 7-day window gives no rolling mean at all. */
+const MIN_WEEK_NIGHTS = 3;
+/** Fewer nights than this in the 7-day window caps the verdict at "slightly". */
+const GOOD_WEEK_NIGHTS = 5;
+const MIN_BASELINE_NIGHTS = 14;
 
 const col = (rows: DailyRow[], key: string) => rows.map((r) => (finite(r[key] as number) ? (r[key] as number) : null));
 
@@ -35,10 +43,22 @@ export interface HrvReport {
   garmin_status: string | null;
   garmin_baseline_ms: [number, number] | null;
   nights_in_baseline: number;
+  /** Nights with HRV among the last 7. The rolling mean needs 3; fewer than 5 caps the verdict. */
+  nights_in_7d: number;
+  confidence: "good" | "low" | null;
+  /** First night used, when the baseline was reset (new device). */
+  baseline_from: string | null;
   interpretation: string;
 }
 
-export function hrvReport(rows: DailyRow[], end: string): HrvReport {
+export interface HrvOptions {
+  /** Ignore nights before this date. HRV from different devices is not comparable, so set it when the watch changes. */
+  baselineFrom?: string;
+}
+
+export function hrvReport(allRows: DailyRow[], end: string, opts: HrvOptions = {}): HrvReport {
+  const from = opts.baselineFrom ?? null;
+  const rows = from ? allRows.filter((r) => r.date >= from) : allRows;
   const weekStart = addDays(end, -(ROLLING_DAYS - 1));
   const baseRows = between(rows, addDays(weekStart, -BASELINE_DAYS), addDays(weekStart, -1));
   const weekRows = between(rows, weekStart, end);
@@ -46,19 +66,25 @@ export function hrvReport(rows: DailyRow[], end: string): HrvReport {
   const baseLn = col(baseRows, "hrv_ms").map(ln).filter(finite);
   const weekLn = col(weekRows, "hrv_ms").map(ln).filter(finite);
   const latest = [...weekRows].reverse().find((r) => finite(r.hrv_ms as number));
-  const bMean = baseLn.length >= 14 ? mean(baseLn) : null;
-  const bSd = baseLn.length >= 14 ? sd(baseLn) : null;
-  const rolling = weekLn.length >= 3 ? mean(weekLn) : null;
+  const bMean = baseLn.length >= MIN_BASELINE_NIGHTS ? mean(baseLn) : null;
+  const bSd = baseLn.length >= MIN_BASELINE_NIGHTS ? sd(baseLn) : null;
+  const swc = bSd ? 0.5 * bSd : null;
+  const rolling = weekLn.length >= MIN_WEEK_NIGHTS ? mean(weekLn) : null;
 
+  // Without a baseline there is nothing to judge against, so no verdict.
   let status: Status = "no data";
-  if (rolling !== null && bMean !== null && bSd) {
-    const swc = 0.5 * bSd;
-    status = rolling < bMean - 2 * swc ? "low" : rolling < bMean - swc ? "slightly low" : rolling > bMean + 2 * swc ? "high" : rolling > bMean + swc ? "slightly high" : "normal";
-  } else if (rolling !== null) status = "normal";
+  if (rolling !== null && bMean !== null) {
+    status = !swc
+      ? "normal"
+      : rolling < bMean - 2 * swc ? "low" : rolling < bMean - swc ? "slightly low" : rolling > bMean + 2 * swc ? "high" : rolling > bMean + swc ? "slightly high" : "normal";
+  }
+  const thin = rolling !== null && weekLn.length < GOOD_WEEK_NIGHTS;
+  const capped = thin && (status === "low" || status === "high");
+  if (capped) status = status === "low" ? "slightly low" : "slightly high";
 
   const lastLn = ln((latest?.hrv_ms as number) ?? null);
   const z = lastLn !== null && bMean !== null && bSd ? (lastLn - bMean) / bSd : null;
-  const below = bMean !== null && bSd ? weekLn.filter((v) => v < bMean - bSd).length : 0;
+  const below = bMean !== null && swc ? weekLn.filter((v) => v < bMean - swc).length : 0;
   const weekSd = sd(weekLn);
   const weekMean = mean(weekLn);
   const cv = weekSd !== null && weekMean ? (weekSd / weekMean) * 100 : null;
@@ -76,23 +102,26 @@ export function hrvReport(rows: DailyRow[], end: string): HrvReport {
   const trend = linearTrend(points);
 
   const garminRow = latest ?? [...rows].reverse().find((r) => r.hrv_status);
+  const thinNote = thin
+    ? ` Only ${weekLn.length} of ${ROLLING_DAYS} nights have HRV, so treat this as less certain${capped ? `; the verdict is capped at "${status}"` : ""}.`
+    : "";
   const interpretation =
-    status === "no data"
+    rolling === null
       ? "Not enough overnight HRV readings yet. HRV needs the watch worn overnight; Garmin's baseline needs about 3 weeks."
       : bMean === null
-        ? "Fewer than 14 nights before this week, so no personal baseline yet; values are shown without a verdict."
+        ? `Fewer than ${MIN_BASELINE_NIGHTS} nights before this week${from ? ` since ${from}` : ""}, so no personal baseline yet; values are shown without a verdict.`
         : status === "normal"
-          ? "The 7-day HRV average sits inside your normal band: no sign of accumulated stress."
+          ? `The 7-day HRV average sits inside your normal band: no sign of accumulated stress.${thinNote}`
           : status.includes("low")
-            ? "The 7-day HRV average is below your normal band. Common causes: hard training block, poor sleep, illness, alcohol, travel or life stress. Favour easy days until it returns."
-            : "The 7-day HRV average is above your normal band. Usually good recovery; a sudden jump with fatigue can also mean heavy fatigue in trained athletes.";
+            ? `The 7-day HRV average is below your normal band. Common causes: hard training block, poor sleep, illness, alcohol, travel or life stress. Favour easy days until it returns.${thinNote}`
+            : `The 7-day HRV average is above your normal band. Usually good recovery; a sudden jump with fatigue can also mean heavy fatigue in trained athletes.${thinNote}`;
 
   return {
     last_night_ms: (latest?.hrv_ms as number) ?? null,
     last_night_date: latest?.date ?? null,
     rolling_7d_ms: rolling !== null ? round(Math.exp(rolling)) : null,
     baseline_ms: bMean !== null ? round(Math.exp(bMean)) : null,
-    normal_range_ms: bMean !== null && bSd ? [round(Math.exp(bMean - 0.5 * bSd))!, round(Math.exp(bMean + 0.5 * bSd))!] : null,
+    normal_range_ms: bMean !== null && swc ? [round(Math.exp(bMean - swc))!, round(Math.exp(bMean + swc))!] : null,
     status_7d: status,
     last_night_z: round(z, 2),
     days_below_normal_last_7: below,
@@ -104,6 +133,9 @@ export function hrvReport(rows: DailyRow[], end: string): HrvReport {
         ? [garminRow!.hrv_baseline_low_ms as number, garminRow!.hrv_baseline_high_ms as number]
         : null,
     nights_in_baseline: baseLn.length,
+    nights_in_7d: weekLn.length,
+    confidence: rolling === null ? null : thin ? "low" : "good",
+    baseline_from: from,
     interpretation,
   };
 }

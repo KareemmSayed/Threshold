@@ -17,7 +17,7 @@ Key facts:
 
 ## Tools
 - daily_briefing: readiness today from HRV, resting HR, sleep, Body Battery, training form and load ramp versus personal baselines
-- recovery_analysis: HRV on a 60-day ln(rMSSD) baseline, resting-HR drift, sleep versus usual
+- recovery_analysis: HRV on a 60-day baseline of ln(Garmin overnight HRV), resting-HR drift, sleep versus usual
 - training_load: CTL, ATL, TSB, ACWR, monotony, strain, weekly load by sport
 - weekly_report: week-by-week volume, intensity split, recovery, week-over-week change
 - metric_trend: trend and previous-period comparison for any metric

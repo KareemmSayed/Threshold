@@ -53,7 +53,14 @@ export async function createContext(env: Env, opts: ContextOptions): Promise<App
   };
   const expiry = keyExpiry(env, today);
   if (expiry && expiry.daysLeft <= 14) ctx.notes.push(expiry.message);
+  if (env.HRV_BASELINE_FROM?.trim() && !hrvBaselineFrom(env)) ctx.notes.push("HRV_BASELINE_FROM is not a valid YYYY-MM-DD date, so it is ignored.");
   return ctx;
+}
+
+/** The date the HRV baseline restarts from (a new watch), or undefined when unset or invalid. */
+export function hrvBaselineFrom(env: Env): string | undefined {
+  const date = env.HRV_BASELINE_FROM?.trim();
+  return date && isIsoDate(date) ? date : undefined;
 }
 
 export function keyExpiry(env: Env, today: string): { daysLeft: number; message: string } | null {

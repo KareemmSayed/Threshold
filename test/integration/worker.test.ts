@@ -20,25 +20,29 @@ function useGarmin(opts: MockOptions = {}) {
   });
 }
 
-async function call(path: string, init: RequestInit = {}): Promise<Response> {
+async function call(path: string, init: RequestInit = {}, workerEnv: typeof env = env): Promise<Response> {
   const ctx = createExecutionContext();
-  const res = await worker.fetch(new Request(`${ORIGIN}${path}`, init), env, ctx);
+  const res = await worker.fetch(new Request(`${ORIGIN}${path}`, init), workerEnv, ctx);
   await waitOnExecutionContext(ctx);
   return res;
 }
 
 let rpcId = 0;
-async function rpc(method: string, params: unknown = {}, token = ACCESS_KEY) {
-  const res = await call("/mcp", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}`, "MCP-Protocol-Version": "2025-06-18" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
-  });
+async function rpc(method: string, params: unknown = {}, token = ACCESS_KEY, workerEnv: typeof env = env) {
+  const res = await call(
+    "/mcp",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}`, "MCP-Protocol-Version": "2025-06-18" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
+    },
+    workerEnv,
+  );
   return { status: res.status, body: (await res.json()) as { result?: any; error?: any } };
 }
 
-async function tool(name: string, args: Record<string, unknown> = {}) {
-  const { body } = await rpc("tools/call", { name, arguments: args });
+async function tool(name: string, args: Record<string, unknown> = {}, workerEnv: typeof env = env) {
+  const { body } = await rpc("tools/call", { name, arguments: args }, ACCESS_KEY, workerEnv);
   const result = body.result as { isError?: boolean; content: Array<{ text: string }> };
   const text = result.content[0].text;
   let data: any;
@@ -156,6 +160,8 @@ describe("MCP over a bearer access key", () => {
 
     const recovery = await tool("recovery_analysis", { date: "yesterday" });
     expect(recovery.data.hrv.baseline_ms).toBeGreaterThan(0);
+    expect(recovery.data.hrv.nights_in_7d).toBe(7);
+    expect(recovery.data.hrv.baseline_from).toBeUndefined(); // the formatter drops null fields
     expect(recovery.data.date).toBe(addDays(today(), -1));
 
     const weekly = await tool("weekly_report", { weeks: 3 });
@@ -167,6 +173,21 @@ describe("MCP over a bearer access key", () => {
 
     const runningKm = await tool("metric_trend", { metric: "running_km", days: 28, granularity: "week" });
     expect(runningKm.data.summary.total).toBeGreaterThan(0);
+  });
+
+  it("restarts the HRV baseline from HRV_BASELINE_FROM", async () => {
+    const from = addDays(today(), -3);
+    const withReset = Object.assign(Object.create(env), { HRV_BASELINE_FROM: from }) as typeof env;
+    const reset = await tool("recovery_analysis", { date: "yesterday" }, withReset);
+    expect(reset.data.hrv.baseline_from).toBe(from);
+    expect(reset.data.hrv.baseline_ms).toBeUndefined();
+    expect(reset.data.hrv.status_7d).toBe("no data");
+    const briefing = await tool("daily_briefing", {}, withReset);
+    expect(briefing.data.signals.map((s: { signal: string }) => s.signal)).not.toContain("HRV");
+    const bad = Object.assign(Object.create(env), { HRV_BASELINE_FROM: "soon" }) as typeof env;
+    const ignored = await tool("recovery_analysis", { date: "yesterday" }, bad);
+    expect(ignored.data.hrv.baseline_ms).toBeGreaterThan(0);
+    expect(JSON.stringify(ignored.data)).toMatch(/HRV_BASELINE_FROM is not a valid/);
   });
 
   it("lists and deeply analyzes activities, decoding the FIT file", async () => {

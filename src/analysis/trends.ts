@@ -25,7 +25,7 @@ const km = (as: ActivityRow[]) => (as.length ? sum(as.map((a) => a.distance_m)) 
 
 export const METRICS: Record<string, Metric> = {
   resting_hr: { unit: "bpm", description: "Resting heart rate", better: "lower", combine: "mean", source: d("resting_hr") },
-  hrv: { unit: "ms", description: "Overnight HRV (rMSSD average)", better: "higher", combine: "mean", source: d("hrv_ms") },
+  hrv: { unit: "ms", description: "Overnight HRV (Garmin's nightly average)", better: "higher", combine: "mean", source: d("hrv_ms") },
   sleep_hours: { unit: "h", description: "Total sleep", better: "higher", combine: "mean", source: d("sleep_seconds", 1 / 3600) },
   sleep_score: { unit: "0-100", description: "Garmin sleep score", better: "higher", combine: "mean", source: d("sleep_score") },
   deep_sleep_min: { unit: "min", description: "Deep sleep", better: "higher", combine: "mean", source: d("deep_sleep_seconds", 1 / 60) },

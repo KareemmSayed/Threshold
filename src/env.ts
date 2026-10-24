@@ -19,6 +19,8 @@ export interface Env {
   GARMIN_KEY_EXPIRES?: string;
   /** Optional. Oldest date the archive backfills to (YYYY-MM-DD). Default: as far back as Garmin answers. */
   BACKFILL_FROM?: string;
+  /** Optional. First night (YYYY-MM-DD) the HRV baseline may use. Set it when you change watch: HRV from different devices is not comparable. */
+  HRV_BASELINE_FROM?: string;
   /** Optional. `false` stops the cron job from downloading FIT files. */
   SYNC_FIT_FILES?: string;
   /** Optional. Overrides the Garmin API host (tests, proxies). */

@@ -8,7 +8,8 @@ import { hrvReport, rhrReport, sleepReport } from "../../src/analysis/recovery";
 import { linearTrend, mean, sd } from "../../src/analysis/stats";
 import { metricTrend } from "../../src/analysis/trends";
 import { weeklyReport } from "../../src/analysis/weekly";
-import { profileFacts, type ProfileFacts } from "../../src/context";
+import { hrvBaselineFrom, profileFacts, type ProfileFacts } from "../../src/context";
+import type { Env } from "../../src/env";
 import { compact } from "../../src/garmin/compact";
 import { addDays, eachDate, isIsoDate, isoWeek, runs, todayIn, weekStart, windows } from "../../src/util/dates";
 
@@ -207,6 +208,65 @@ describe("recovery", () => {
     expect(hrv.interpretation).toMatch(/Fewer than 14 nights/);
     expect(hrvReport([], end).status_7d).toBe("no data");
   });
+  it("counts the nights behind the 7-day mean", () => {
+    const rows = days(end, 70, (_, i) => ({ hrv_ms: 60 + (i % 5) }));
+    const hrv = hrvReport(rows, end);
+    expect(hrv.nights_in_7d).toBe(7);
+    expect(hrv.confidence).toBe("good");
+    expect(hrvReport([], end).nights_in_7d).toBe(0);
+    expect(hrvReport([], end).confidence).toBeNull();
+  });
+  it("caps the verdict when few of the last 7 nights have HRV", () => {
+    // Three nights in the last week, all far below a steady baseline.
+    const make = (_: string, i: number) => ({ hrv_ms: i < 63 ? 60 + (i % 5) : i % 2 === 0 ? 45 : null }) as Partial<DailyRow>;
+    const thin = hrvReport(days(end, 70, make), end);
+    expect(thin.nights_in_7d).toBe(3);
+    expect(thin.confidence).toBe("low");
+    expect(thin.status_7d).toBe("slightly low");
+    expect(thin.interpretation).toMatch(/Only 3 of 7 nights/);
+    expect(thin.interpretation).toMatch(/capped at "slightly low"/);
+    // The same drop over a full week is a clear "low".
+    expect(hrvReport(days(end, 70, (_, i) => ({ hrv_ms: i < 63 ? 60 + (i % 5) : 45 })), end).status_7d).toBe("low");
+    // Two nights are too few for any rolling mean.
+    const two = hrvReport(days(end, 70, (_, i) => ({ hrv_ms: i < 63 ? 60 + (i % 5) : i === 64 || i === 66 ? 45 : null })), end);
+    expect(two.rolling_7d_ms).toBeNull();
+    expect(two.status_7d).toBe("no data");
+  });
+  it("gives no verdict until a baseline exists", () => {
+    const hrv = hrvReport(days(end, 5, () => ({ hrv_ms: 60 })), end);
+    expect(hrv.rolling_7d_ms).toBe(60);
+    expect(hrv.status_7d).toBe("no data");
+  });
+  it("restarts the baseline after a device change", () => {
+    // 40 nights on the old watch (about 62 ms), then 40 on a new one (about 47 ms).
+    const switchedAt = "2026-09-10";
+    const make = (d: string, i: number) => ({ hrv_ms: d < switchedAt ? 60 + (i % 5) : 45 + (i % 5) }) as Partial<DailyRow>;
+    const rows = days("2026-10-20", 80, make);
+    const pooled = hrvReport(rows, "2026-10-20");
+    expect(pooled.status_7d).not.toBe("normal");
+    const reset = hrvReport(rows, "2026-10-20", { baselineFrom: switchedAt });
+    expect(reset.status_7d).toBe("normal");
+    expect(reset.baseline_from).toBe(switchedAt);
+    expect(reset.baseline_ms).toBeLessThan(pooled.baseline_ms!);
+    // Right after the switch there is no baseline on the new watch yet, so no verdict.
+    const fresh = hrvReport(rows, "2026-09-20", { baselineFrom: switchedAt });
+    expect(fresh.status_7d).toBe("no data");
+    expect(fresh.nights_in_baseline).toBeLessThan(14);
+    expect(fresh.interpretation).toMatch(/Fewer than 14 nights before this week since 2026-09-10/);
+  });
+  it("counts days below the normal band, not below one SD", () => {
+    // Baseline alternates 50 and 70 ms; the week sits at 52 ms: under the band edge (-0.5 SD) but above -1 SD.
+    const rows = days(end, 70, (_, i) => ({ hrv_ms: i < 63 ? (i % 2 ? 70 : 50) : 52 }));
+    const hrv = hrvReport(rows, end);
+    expect(hrv.days_below_normal_last_7).toBe(7);
+    expect(hrv.last_night_z!).toBeGreaterThan(-1);
+  });
+  it("reads the baseline reset from the environment", () => {
+    expect(hrvBaselineFrom({ HRV_BASELINE_FROM: " 2026-09-10 " } as Env)).toBe("2026-09-10");
+    expect(hrvBaselineFrom({ HRV_BASELINE_FROM: "2026-13-40" } as Env)).toBeUndefined();
+    expect(hrvBaselineFrom({ HRV_BASELINE_FROM: "" } as Env)).toBeUndefined();
+    expect(hrvBaselineFrom({} as Env)).toBeUndefined();
+  });
   it("summarizes sleep", () => {
     const rows = days(end, 40, (_, i) => ({ sleep_seconds: i < 33 ? 8 * 3600 : 5.5 * 3600, sleep_score: 80 }));
     const s = sleepReport(rows, end);
@@ -224,6 +284,25 @@ describe("briefing", () => {
     expect(b.overall.status).toBe("red");
     expect(b.signals.map((s) => s.signal)).toEqual(expect.arrayContaining(["HRV", "Resting HR", "Sleep", "Body Battery"]));
     expect(b.training.last_activity?.id).toBeDefined();
+  });
+  it("shows the HRV night count and drops to caution on thin evidence", () => {
+    const end = "2026-10-20";
+    const rows = days(end, 70, (_, i) => ({ hrv_ms: i < 63 ? 62 + (i % 4) : i % 2 === 0 ? 44 : null, resting_hr: 50, sleep_seconds: 8 * 3600, body_battery_high: 90 }) as Partial<DailyRow>);
+    const hrv = briefing(end, rows, [], facts, "2026-06-20").signals.find((s) => s.signal === "HRV")!;
+    expect(hrv.level).toBe("caution");
+    expect(hrv.detail).toMatch(/from 3 of 7 nights/);
+    expect(hrv.detail).toMatch(/low confidence/);
+  });
+  it("skips the HRV signal until there is a baseline", () => {
+    const end = "2026-10-20";
+    const rows = days(end, 70, (d, i) => ({ hrv_ms: i >= 63 ? 60 : null, resting_hr: 50, sleep_seconds: 8 * 3600, body_battery_high: 90 }) as Partial<DailyRow>);
+    const b = briefing(end, rows, [], facts, "2026-06-20");
+    expect(b.signals.map((s) => s.signal)).not.toContain("HRV");
+    // A reset date that hides the old watch's nights does the same.
+    const old = days(end, 70, () => ({ hrv_ms: 60, resting_hr: 50, sleep_seconds: 8 * 3600, body_battery_high: 90 }));
+    const reset = briefing(end, old, [], facts, "2026-06-20", { baselineFrom: "2026-10-10" });
+    expect(reset.signals.map((s) => s.signal)).not.toContain("HRV");
+    expect(reset.baselines.hrv_baseline_from).toBe("2026-10-10");
   });
   it("goes green when everything is normal", () => {
     const end = "2026-10-20";
