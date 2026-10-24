@@ -41,7 +41,7 @@ Other Garmin MCP servers hand the model raw JSON and hope it does the math. Thre
 | Tool | Answers |
 | --- | --- |
 | `daily_briefing` | "How am I today?" HRV, resting HR, sleep, Body Battery, form and load ramp against *your* 60-day baselines, with a green / amber / red call and the rule behind it. |
-| `recovery_analysis` | HRV on a personal baseline (ln rMSSD, 7-day rolling mean, normal band = baseline ± 0.5 SD), resting-HR drift, sleep versus usual. |
+| `recovery_analysis` | HRV on a personal baseline (ln of Garmin's overnight HRV average, 7-day rolling mean, normal band = baseline ± 0.5 SD), resting-HR drift, sleep versus usual. Shows how many of the last 7 nights have HRV. |
 | `training_load` | Fitness (CTL), fatigue (ATL), form (TSB), acute:chronic ratio, monotony, strain, weekly load, load by sport. |
 | `weekly_report` | Week-by-week volume, load, intensity split (80/20?), sleep, HRV, resting HR, and change versus last week. |
 | `metric_trend` | Any metric over time (HRV, resting HR, sleep, weight, VO2 max, running pace, efficiency...), slope, min/max, and comparison with the previous period. |
@@ -251,6 +251,7 @@ The first backfill of a long history takes a few hours to a few days on Free, an
 | `TIMEZONE` | var | Garmin profile, else UTC | IANA zone used for "today". |
 | `GARMIN_KEY_EXPIRES` | var | – | `YYYY-MM-DD`; tools warn 14 days before. |
 | `BACKFILL_FROM` | var | as far as Garmin answers | Oldest date to archive. |
+| `HRV_BASELINE_FROM` | var | – | `YYYY-MM-DD`; HRV baselines ignore earlier nights. Set it when you change watch. |
 | `SYNC_FIT_FILES` | var | `true` | `false` skips FIT downloads in the background. |
 | `PUBLIC_URL` | var | request origin | Pin the OAuth origin when you use a custom domain. |
 
@@ -279,6 +280,11 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 * Garmin's Personal API does not expose Training Readiness, Training Status or race predictions. Threshold computes its own readiness and load with transparent rules instead.
 * Message-140 fields other than VO2 max are community-decoded and labelled experimental.
+* HRV comes from Garmin's nightly HRV summary in the Personal API. Some accounts and devices return none. HRV signals then show no data and the briefing skips them.
+* Threshold uses Garmin's overnight HRV average. It does not compute rMSSD from beat-to-beat intervals and cannot check Garmin's method.
+* HRV from different devices is not comparable, and Threshold cannot see a device change. Set `HRV_BASELINE_FROM` to the first night on the new watch; verdicts return after about three weeks (14 baseline nights plus the current week).
+* With fewer than 5 of the last 7 nights, an HRV verdict is capped at "slightly low" or "slightly high". Every HRV result shows its night count.
+* The readiness and recovery rules are transparent heuristics. They are not validated against performance or recovery outcomes. The tests prove the code applies the rules, and the FIT decoder test proves parsing matches Garmin's SDK. Neither shows that a call predicts anything.
 * Not medical advice. Consumer wearables estimate; trends matter more than single readings.
 
 ## Development

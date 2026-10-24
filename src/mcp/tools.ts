@@ -12,7 +12,7 @@ import { hrvReport, rhrReport, sleepReport } from "../analysis/recovery";
 import { finite, round } from "../analysis/stats";
 import { METRICS, metricTrend, type Granularity } from "../analysis/trends";
 import { weeklyReport, type BestEffortRow } from "../analysis/weekly";
-import { createContext, keyExpiry, loadProfile, zoneFloorsFor, type AppContext } from "../context";
+import { createContext, hrvBaselineFrom, keyExpiry, loadProfile, zoneFloorsFor, type AppContext } from "../context";
 import { MIN_ACCESS_KEY_LENGTH, SERVER_VERSION, type Env } from "../env";
 import { analyzeFit, formatDuration, pace } from "../fit/analyze";
 import { decodeFit, extractFit } from "../fit/decode";
@@ -123,7 +123,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       await ensureActivities(ctx, warmup, day);
       const { facts } = await loadProfile(ctx);
       const [rows, acts] = await Promise.all([readDaily(ctx.db, from, day), readActivities(ctx.db, warmup, day)]);
-      return { data: briefing(day, rows, acts, facts, warmup) };
+      return { data: briefing(day, rows, acts, facts, warmup, { baselineFrom: hrvBaselineFrom(ctx.env) }) };
     }),
   );
 
@@ -155,7 +155,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "Recovery analysis",
       description:
-        "HRV against a personal 60-day baseline (ln rMSSD, 7-day rolling mean, normal band = baseline +/- 0.5 SD), resting HR drift, and sleep versus usual. Use for 'is my HRV trending down?', 'am I getting sick?', 'how is my recovery?'.",
+        "HRV against a personal 60-day baseline (ln of Garmin's overnight HRV average, 7-day rolling mean, normal band = baseline +/- 0.5 SD), resting HR drift, and sleep versus usual. Reports how many of the last 7 nights have HRV; with fewer than 5 the verdict is capped. Use for 'is my HRV trending down?', 'am I getting sick?', 'how is my recovery?'.",
       inputSchema: { date: dateArg.optional().describe("Last day of the 7-day window. Default: today") },
       annotations: READ,
     },
@@ -164,7 +164,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       const from = addDays(day, -67);
       await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
       const rows = await readDaily(ctx.db, from, day);
-      return { data: { date: day, hrv: hrvReport(rows, day), resting_hr: rhrReport(rows, day), sleep: sleepReport(rows, day) } };
+      return { data: { date: day, hrv: hrvReport(rows, day, { baselineFrom: hrvBaselineFrom(ctx.env) }), resting_hr: rhrReport(rows, day), sleep: sleepReport(rows, day) } };
     }),
   );
 

@@ -9,7 +9,7 @@ import type { ProfileFacts } from "../context";
 import { formatDuration, hoursMinutes } from "../fit/analyze";
 import { addDays } from "../util/dates";
 import { loadReport } from "./load";
-import { hrvReport, rhrReport, sleepReport } from "./recovery";
+import { hrvReport, rhrReport, sleepReport, type HrvOptions } from "./recovery";
 import { finite, mean, round } from "./stats";
 
 type Level = "good" | "ok" | "caution" | "warning";
@@ -20,8 +20,8 @@ interface Signal {
   detail: string;
 }
 
-export function briefing(date: string, rows: DailyRow[], activities: ActivityRow[], facts: ProfileFacts, warmupStart: string) {
-  const hrv = hrvReport(rows, date);
+export function briefing(date: string, rows: DailyRow[], activities: ActivityRow[], facts: ProfileFacts, warmupStart: string, hrvOptions: HrvOptions = {}) {
+  const hrv = hrvReport(rows, date, hrvOptions);
   const rhr = rhrReport(rows, date);
   const sleep = sleepReport(rows, date);
   const load = loadReport(activities, facts, addDays(date, -27), date, warmupStart);
@@ -33,7 +33,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "HRV",
       level,
-      detail: `7-day avg ${hrv.rolling_7d_ms ?? "?"} ms vs normal ${hrv.normal_range_ms ? hrv.normal_range_ms.join("-") : "n/a"} ms (${hrv.status_7d}); last night ${hrv.last_night_ms ?? "?"} ms${hrv.last_night_z !== null ? `, z ${hrv.last_night_z}` : ""}.`,
+      detail: `7-day avg ${hrv.rolling_7d_ms ?? "?"} ms from ${hrv.nights_in_7d} of 7 nights vs normal ${hrv.normal_range_ms ? hrv.normal_range_ms.join("-") : "n/a"} ms (${hrv.status_7d}${hrv.confidence === "low" ? ", low confidence" : ""}); last night ${hrv.last_night_ms ?? "?"} ms${hrv.last_night_z !== null ? `, z ${hrv.last_night_z}` : ""}.`,
     });
   }
   if (rhr.status !== "no data") {
@@ -126,6 +126,8 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     },
     baselines: {
       hrv_nights: hrv.nights_in_baseline,
+      hrv_nights_in_7d: hrv.nights_in_7d,
+      hrv_baseline_from: hrv.baseline_from,
       garmin_hrv_status: hrv.garmin_status,
       hrv_trend_30d_ms_per_week: hrv.trend_30d_ms_per_week,
     },
