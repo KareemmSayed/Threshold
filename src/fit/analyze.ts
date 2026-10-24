@@ -23,37 +23,41 @@ export interface AnalyzeOptions {
 const MILE_M = 1609.344;
 const GAP_S = 10; // longer gaps between samples count as pauses
 
-export const DISTANCE_EFFORTS: Record<string, Array<[string, number]>> = {
-  running: [
-    ["400m", 400],
-    ["1k", 1000],
-    ["1mi", MILE_M],
-    ["5k", 5000],
-    ["10k", 10000],
-    ["half", 21097.5],
-    ["marathon", 42195],
-  ],
-  walking: [
-    ["1k", 1000],
-    ["5k", 5000],
-  ],
-  hiking: [
-    ["1k", 1000],
-    ["5k", 5000],
-    ["10k", 10000],
-  ],
+/** [label, meters, fastest believable seconds]. Foot and swim limits sit just under the world records; bikes allow 90 km/h. */
+export type DistanceEffort = [label: string, meters: number, fastestS?: number];
+
+const FOOT: Record<string, DistanceEffort> = {
+  "400m": ["400m", 400, 43],
+  "1k": ["1k", 1000, 131],
+  "1mi": ["1mi", MILE_M, 223],
+  "5k": ["5k", 5000, 755],
+  "10k": ["10k", 10000, 1571],
+  half: ["half", 21097.5, 3402],
+  marathon: ["marathon", 42195, 7235],
+};
+
+export const DISTANCE_EFFORTS: Record<string, DistanceEffort[]> = {
+  running: Object.values(FOOT),
+  walking: [FOOT["1k"], FOOT["5k"]],
+  hiking: [FOOT["1k"], FOOT["5k"], FOOT["10k"]],
   cycling: [
-    ["10k_bike", 10000],
-    ["20k_bike", 20000],
-    ["40k_bike", 40000],
-    ["100k_bike", 100000],
+    ["10k_bike", 10000, 400],
+    ["20k_bike", 20000, 800],
+    ["40k_bike", 40000, 1600],
+    ["100k_bike", 100000, 4000],
   ],
   swimming: [
-    ["100m_swim", 100],
-    ["400m_swim", 400],
-    ["1500m_swim", 1500],
+    ["100m_swim", 100, 44],
+    ["400m_swim", 400, 212],
+    ["1500m_swim", 1500, 840],
   ],
 };
+
+/**
+ * Fastest believable speed for one distance step, measured from the last time the
+ * distance changed (pool swims step a length at a time). A faster step is a GPS glitch.
+ */
+export const MAX_STEP_MPS: Record<string, number> = { running: 12, walking: 12, hiking: 12, cycling: 35, swimming: 5 };
 
 export const POWER_DURATIONS: Array<[string, number]> = [
   ["5s", 5],
@@ -147,36 +151,73 @@ export function bestAverages(series: Float64Array, durations: Array<[string, num
   return out;
 }
 
-/** Fastest time over each distance, from the cumulative distance stream. */
-export function bestDistanceEfforts(rec: Records, efforts: Array<[string, number]>): Record<string, { time_s: number; start_offset_s: number }> {
+/** Calls `visit(i, j, seconds)` with the shortest window ending at each sample j that covers `target` meters. */
+function eachWindow(t: number[], d: number[], target: number, visit: (i: number, j: number, seconds: number) => void): void {
+  let i = 0;
+  for (let j = 1; j < d.length; j++) {
+    while (i + 1 < j && d[j] - d[i + 1] >= target) i++;
+    const covered = d[j] - d[i];
+    // Scale to the exact distance; samples rarely land on it.
+    if (covered >= target) visit(i, j, ((t[j] - t[i]) * target) / covered);
+  }
+}
+
+/**
+ * Fastest time over each distance, from the cumulative distance stream.
+ * Distance steps faster than `maxStepMps` are dropped (GPS spikes). Any window
+ * faster than an effort's believable limit marks its stretch as bad (a car, a
+ * train, GPS drift), and no effort may cross a bad stretch.
+ */
+export function bestDistanceEfforts(rec: Records, efforts: DistanceEffort[], maxStepMps = Infinity): Record<string, { time_s: number; start_offset_s: number }> {
   const t: number[] = [];
   const d: number[] = [];
+  let prev = NaN; // last raw distance that changed, and when
+  let prevT = NaN;
+  let clean = 0;
   for (let i = 0; i < rec.length; i++) {
     const dist = rec.distance[i];
     if (dist !== dist) continue;
-    if (d.length && dist < d[d.length - 1]) continue; // distance must not go backwards
+    if (dist !== prev) {
+      const step = dist - prev;
+      // Backward steps and impossible jumps add no distance; the time still counts.
+      if (step > 0 && step <= maxStepMps * (rec.time[i] - prevT)) clean += step;
+      prev = dist;
+      prevT = rec.time[i];
+    }
     t.push(rec.time[i]);
-    d.push(dist);
+    d.push(clean);
   }
   const out: Record<string, { time_s: number; start_offset_s: number }> = {};
   if (d.length < 2) return out;
-  const total = d[d.length - 1] - d[0];
+  const total = d[d.length - 1];
+  // Step k joins samples k and k + 1. Mark the steps of every impossible window
+  // (a difference array), then turn bad[k] into the count of bad steps before sample k.
+  const bad = new Int32Array(d.length);
+  for (const [, target, fastest] of efforts) {
+    if (fastest === undefined || total < target) continue;
+    eachWindow(t, d, target, (i, j, seconds) => {
+      if (seconds < fastest) {
+        bad[i]++;
+        bad[j]--;
+      }
+    });
+  }
+  let flagged = 0;
+  for (let k = 0, open = 0; k < bad.length; k++) {
+    open += bad[k];
+    bad[k] = flagged;
+    if (open > 0) flagged++;
+  }
   for (const [label, target] of efforts) {
     if (total < target) continue;
     let best = Infinity;
     let bestStart = 0;
-    let i = 0;
-    for (let j = 1; j < d.length; j++) {
-      while (i + 1 < j && d[j] - d[i + 1] >= target) i++;
-      const covered = d[j] - d[i];
-      if (covered < target) continue;
-      // Scale to the exact distance; samples rarely land on it.
-      const time = ((t[j] - t[i]) * target) / covered;
-      if (time < best) {
-        best = time;
+    eachWindow(t, d, target, (i, j, seconds) => {
+      if (seconds < best && bad[j] === bad[i]) {
+        best = seconds;
         bestStart = t[i] - t[0];
       }
-    }
+    });
     if (best < Infinity) out[label] = { time_s: Math.round(best), start_offset_s: Math.round(bestStart) };
   }
   return out;
@@ -540,7 +581,7 @@ export function analyzeFit(fit: FitFile, opts: AnalyzeOptions = {}): Analysis {
   const hasHr = mean(rec.hr) > 0;
   const hasGps = mean(rec.lat) === mean(rec.lat);
 
-  const distanceEfforts = bestDistanceEfforts(rec, DISTANCE_EFFORTS[sport] ?? []);
+  const distanceEfforts = bestDistanceEfforts(rec, DISTANCE_EFFORTS[sport] ?? [], MAX_STEP_MPS[sport]);
   const powerCurve = hasPower ? bestAverages(power, POWER_DURATIONS) : {};
   const hrPeaks = hasHr
     ? bestAverages(hr, [

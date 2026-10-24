@@ -107,6 +107,8 @@ export interface RunOptions {
   seconds?: number;
   sport?: number; // FIT sport enum: 1 running, 2 cycling
   speed?: (t: number) => number;
+  /** Meters added to the recorded distance at second t without moving: GPS glitches. */
+  distanceOffset?: (t: number) => number;
   hr?: (t: number) => number;
   power?: (t: number) => number | null;
   vo2max?: number;
@@ -124,6 +126,7 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
   const speed = opts.speed ?? (() => 3);
   const hr = opts.hr ?? ((t: number) => (t < seconds / 2 ? 145 : 152));
   const power = opts.power ?? (() => null);
+  const offset = opts.distanceOffset ?? (() => 0);
   const w = new FitWriter();
   const t0 = fitTime(opts.start);
   w.define(0, 0, [
@@ -158,7 +161,7 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
     const alt = 100 + 10 * Math.sin(t / 300);
     const p = power(t);
     const pc = t >= 360 ? (t < seconds / 2 ? 2 : -1) : null;
-    const values = [Math.round(hr(t)), Math.round(distance * 100), Math.round(v * 1000), Math.round((alt + 500) * 5), p === null ? null : Math.round(p), 600000000 + t * 1000, 100000000, pc];
+    const values = [Math.round(hr(t)), Math.round((distance + offset(t)) * 100), Math.round(v * 1000), Math.round((alt + 500) * 5), p === null ? null : Math.round(p), 600000000 + t * 1000, 100000000, pc];
     if (opts.compressed !== false && t % 2 === 1) w.data(3, values, (t0 + t) & 0x1f);
     else w.data(2, [t0 + t, ...values]);
   }
