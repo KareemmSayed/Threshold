@@ -13,6 +13,7 @@
 import { AuthorizationError, CimdFetchError, OAuthProvider, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { MIN_ACCESS_KEY_LENGTH, SERVER_VERSION, type Env } from "../env";
 import { handleMcp } from "../mcp/server";
+import { serveView } from "../view/page";
 import { consentPage, consentRetryPage, landingPage, messagePage, type SetupStatus } from "./pages";
 
 export const SCOPE = "garmin:read";
@@ -134,6 +135,7 @@ async function authorize(request: Request, env: Env): Promise<Response> {
 const defaultHandler = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/v/")) return serveView(request, env, url.pathname.slice(3));
     switch (url.pathname) {
       case "/":
         return html(landingPage(url.origin, setupStatus(env)));

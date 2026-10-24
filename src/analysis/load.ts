@@ -67,6 +67,13 @@ export function performanceChart(loads: Map<string, number>, start: string, end:
   return out;
 }
 
+/** Daily load, fitness, fatigue and form from `start` to `end`, for charts. */
+export function loadChart(activities: ActivityRow[], facts: ProfileFacts, start: string, end: string, warmupStart: string): LoadDay[] {
+  const loads = new Map<string, number>();
+  for (const a of activities) if (a.date) loads.set(a.date, (loads.get(a.date) ?? 0) + activityLoad(a, facts).load);
+  return performanceChart(loads, warmupStart, end).filter((d) => d.date >= start);
+}
+
 export function formLabel(tsb: number, ctl: number): string {
   // Scale thresholds to fitness so they suit both low- and high-volume athletes.
   const pct = ctl > 0 ? (tsb / ctl) * 100 : 0;

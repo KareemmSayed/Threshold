@@ -128,13 +128,14 @@ describe("MCP over a bearer access key", () => {
         "query_archive",
         "recovery_analysis",
         "server_status",
+        "show_view",
         "sync_now",
         "training_load",
         "weekly_report",
       ].sort(),
     );
     const readOnly = body.result.tools.filter((t: { annotations?: { readOnlyHint?: boolean } }) => t.annotations?.readOnlyHint).length;
-    expect(readOnly).toBe(15);
+    expect(readOnly).toBe(16);
     const prompts = await rpc("prompts/list");
     expect(prompts.body.result.prompts.map((p: { name: string }) => p.name)).toContain("morning_check_in");
   });
@@ -265,6 +266,150 @@ describe("MCP over a bearer access key", () => {
   });
 });
 
+async function view(args: Record<string, unknown>, e: typeof env = env) {
+  const ctx = createExecutionContext();
+  const res = await worker.fetch(
+    new Request(`${ORIGIN}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${ACCESS_KEY}`, "MCP-Protocol-Version": "2025-06-18" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "tools/call", params: { name: "show_view", arguments: args } }),
+    }),
+    e,
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  const result = ((await res.json()) as { result: { isError?: boolean; content: Array<{ text: string }>; structuredContent?: any } }).result;
+  let summary: any;
+  try {
+    summary = JSON.parse(result.content[0].text);
+  } catch {
+    summary = result.content[0].text;
+  }
+  return { isError: Boolean(result.isError), spec: result.structuredContent, summary };
+}
+
+const tokenOf = (url: string) => url.slice(url.lastIndexOf("/") + 1);
+
+describe("show_view (MCP Apps and private links)", () => {
+  it("declares the ui:// resource on the tool and serves it as an MCP App", async () => {
+    const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
+    expect(init.body.result.capabilities.resources).toBeDefined();
+    expect(init.body.result.instructions).toContain("show_view");
+
+    const { body } = await rpc("tools/list");
+    const tool = body.result.tools.find((t: { name: string }) => t.name === "show_view");
+    expect(tool._meta.ui.resourceUri).toBe("ui://threshold/view.html");
+    expect(tool._meta["ui/resourceUri"]).toBe("ui://threshold/view.html");
+
+    const listed = await rpc("resources/list");
+    expect(listed.body.result.resources.map((r: { uri: string }) => r.uri)).toContain("ui://threshold/view.html");
+    const read = await rpc("resources/read", { uri: "ui://threshold/view.html" });
+    const content = read.body.result.contents[0];
+    expect(content.mimeType).toBe("text/html;profile=mcp-app");
+    expect(content._meta.ui.csp.resourceDomains).toEqual(["https://fonts.googleapis.com", "https://fonts.gstatic.com"]);
+    expect(content.text).toContain('id="root"');
+    expect(content.text).toContain("ui/initialize");
+  });
+
+  it("builds an activity card from the server's own analysis, with only the requested sections", async () => {
+    const analyzed = await tool("analyze_activity", { sport: "running" });
+    const { isError, spec, summary } = await view({
+      preset: { name: "activity", sport: "running", sections: ["summary", "pacing", "heart_rate"], notes: { pacing: "Even splits throughout." } },
+      next_steps: ["Run easy tomorrow."],
+    });
+    expect(isError).toBe(false);
+    expect(spec.eyebrow).toBe("analyze_activity");
+    expect(spec.aura).toBe("flame");
+    expect(spec.blocks.map((b: { type: string; title?: string }) => b.title ?? b.type)).toEqual(["stats", "Pacing", "Heart rate", "What to do next"]);
+    expect(spec.blocks[0].items[0].value).toBe(String(analyzed.data.analysis.summary.distance_km));
+    expect(spec.blocks[1].note).toBe("Even splits throughout.");
+    const n = analyzed.data.analysis.splits.length;
+    expect(spec.blocks[1].rows.length).toBe(Math.ceil(n / Math.ceil(n / 12)));
+    expect(spec.blocks[3]).toMatchObject({ type: "list", style: "next", items: ["Run easy tomorrow."] });
+    // No activity names or coordinates on the card: they often name places.
+    expect(JSON.stringify(spec)).not.toContain("Morning Run");
+    expect(JSON.stringify(spec)).not.toMatch(/latitude|longitude|"lat"/i);
+    expect(summary.view.blocks).toHaveLength(4);
+    expect(spec.link.url).toMatch(new RegExp(`^${ORIGIN}/v/[A-Za-z0-9_-]{32}$`));
+    expect(summary.link).toBe(spec.link.url);
+  });
+
+  it("builds every preset", async () => {
+    const presets = [
+      { name: "readiness", sections: ["verdict", "signals", "training", "sleep"] },
+      { name: "training_load", days: 42, sections: ["summary", "chart", "form", "weekly", "by_sport"] },
+      { name: "records", sport: "running" },
+      { name: "trend", metric: "resting_hr", days: 30, sections: ["summary", "chart", "trend"] },
+      { name: "recovery" },
+      { name: "weekly", weeks: 3, sections: ["summary", "table", "chart"] },
+    ];
+    await tool("personal_records", { sport: "running", import_missing: true });
+    for (const preset of presets) {
+      const { isError, spec, summary } = await view({ preset });
+      expect(isError, `${preset.name}: ${JSON.stringify(summary)}`).toBe(false);
+      expect(spec.blocks.length, preset.name).toBeGreaterThan(0);
+    }
+    const load = await view({ preset: { name: "training_load", days: 42, sections: ["chart"] } });
+    expect(load.spec.blocks[0].series[0].values).toHaveLength(42);
+    const brief = await view({ preset: { name: "readiness", sections: ["signals"] } });
+    expect(brief.spec.blocks[0].rows.every((r: { value: string }) => r.value.length < 40)).toBe(true);
+  });
+
+  it("renders custom blocks, and rejects malformed ones", async () => {
+    const custom = await view({
+      title: "Every 5K",
+      aura: "violet",
+      blocks: [
+        { type: "headline", value: "PB -33 s.", text: "Today is your best 5K." },
+        { type: "table", columns: ["Date", "Time", "Pace"], rows: [{ cells: ["10 May 2024", "18:20", "3:40"], bar: 1100 }, { cells: ["23 Oct 2026", "17:21", "3:28"], bar: 1041, highlight: true }], bar_longer: "lower" },
+      ],
+    });
+    expect(custom.isError).toBe(false);
+    expect(custom.spec).toMatchObject({ title: "Every 5K", aura: "violet" });
+    expect(custom.spec.blocks).toHaveLength(2);
+
+    expect((await view({})).isError).toBe(true);
+    expect((await view({ blocks: [{ type: "marquee", text: "hi" }] })).isError).toBe(true);
+    expect((await view({ blocks: [{ type: "stats", items: [] }] })).isError).toBe(true);
+  });
+
+  it("serves the private link page, escaped and locked down", async () => {
+    const { spec } = await view({ title: "Escaping", blocks: [{ type: "text", body: "</script><script>alert(1)</script>" }] });
+    const page = await call(`/v/${tokenOf(spec.link.url)}`);
+    expect(page.status).toBe(200);
+    const csp = page.headers.get("Content-Security-Policy") ?? "";
+    const nonce = /'nonce-([^']+)'/.exec(csp)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(page.headers.get("X-Robots-Tag")).toContain("noindex");
+    const html = await page.text();
+    expect(html).toContain(`<script nonce="${nonce}">`);
+    expect(html).toContain('id="threshold-view-data"');
+    expect(html).not.toContain("</script><script>alert(1)");
+    expect(html).toContain("\\u003c/script>");
+
+    expect((await call("/v/not-a-token")).status).toBe(404);
+    expect((await call(`/v/${"A".repeat(32)}`)).status).toBe(404);
+  });
+
+  it("retires links when they expire or the access key changes, and can turn them off", async () => {
+    const first = await view({ blocks: [{ type: "text", body: "one" }] });
+    const token = tokenOf(first.spec.link.url);
+    const rotated = { ...env, ACCESS_KEY: "a-brand-new-access-key-987654" };
+    const ctx = createExecutionContext();
+    expect((await worker.fetch(new Request(`${ORIGIN}/v/${token}`), rotated, ctx)).status).toBe(404);
+    expect((await call(`/v/${token}`)).status).toBe(200);
+
+    await env.DB.prepare(`UPDATE views SET expires_at = ?`).bind(Date.now() - 1000).run();
+    expect((await call(`/v/${token}`)).status).toBe(404);
+
+    const off = await view({ blocks: [{ type: "text", body: "no link" }] }, { ...env, VIEW_LINK_HOURS: "0" });
+    expect(off.isError).toBe(false);
+    expect(off.spec.link).toBeUndefined();
+    expect(off.summary.link).toBeNull();
+  });
+});
+
 describe("Garmin failures", () => {
   it("explains an expired or revoked key", async () => {
     useGarmin({ badKey: true });
@@ -343,7 +488,7 @@ describe("OAuth for Claude and ChatGPT", () => {
 
     const list = await rpc("tools/list", {}, tokens.access_token);
     expect(list.status).toBe(200);
-    expect(list.body.result.tools.length).toBe(16);
+    expect(list.body.result.tools.length).toBe(17);
 
     // Rotating the access key revokes every OAuth token issued before.
     const rotated = { ...env, ACCESS_KEY: "a-brand-new-access-key-987654" };

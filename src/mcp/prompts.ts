@@ -13,7 +13,7 @@ export function registerPrompts(server: McpServer): void {
     },
     () =>
       user(
-        "Call daily_briefing for today. Then answer in at most 6 short bullets: overall status and the main reason, last night's sleep and HRV versus my baseline, my training form, and one concrete recommendation for today's training. Quote the numbers the tool computed; do not recompute them.",
+        "Call daily_briefing for today. Then answer in at most 6 short bullets: overall status and the main reason, last night's sleep and HRV versus my baseline, my training form, and one concrete recommendation for today's training. Quote the numbers the tool computed; do not recompute them. Then call show_view with preset readiness and your recommendation as next_steps.",
       ),
   );
 
@@ -25,7 +25,7 @@ export function registerPrompts(server: McpServer): void {
     },
     () =>
       user(
-        "Call weekly_report with weeks=2 and training_load with days=56. Review the most recent week: volume and load by sport, intensity split (80/20?), sleep/HRV/resting HR trend, and the change versus the week before. Flag load jumps over 30% or ACWR above 1.3. End with three specific suggestions for next week.",
+        "Call weekly_report with weeks=2 and training_load with days=56. Review the most recent week: volume and load by sport, intensity split (80/20?), sleep/HRV/resting HR trend, and the change versus the week before. Flag load jumps over 30% or ACWR above 1.3. End with three specific suggestions for next week. Then call show_view with preset weekly and the suggestions as next_steps.",
       ),
   );
 
@@ -38,7 +38,7 @@ export function registerPrompts(server: McpServer): void {
     },
     ({ sport }) =>
       user(
-        `Call analyze_activity${sport ? ` with sport=${sport}` : ""} for my latest activity. Explain: pacing (splits, negative or positive split), heart rate zones, aerobic decoupling and what it says about durability, best efforts in this session, and any hidden Garmin metrics (VO2 max, performance condition). Keep it under 200 words.`,
+        `Call analyze_activity${sport ? ` with sport=${sport}` : ""} for my latest activity. Explain: pacing (splits, negative or positive split), heart rate zones, aerobic decoupling and what it says about durability, best efforts in this session, and any hidden Garmin metrics (VO2 max, performance condition). Keep it under 200 words. Then call show_view with preset activity for the same activity, a one-sentence note per section, and up to three next_steps.`,
       ),
   );
 

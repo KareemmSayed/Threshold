@@ -58,6 +58,17 @@ export const MIGRATIONS: string[][] = [
 )`,
     `CREATE INDEX IF NOT EXISTS best_efforts_effort ON best_efforts (sport, effort, value)`,
   ],
+  [
+    // show_view's private links: id is the SHA-256 of the link token, so the table alone cannot rebuild a link.
+    `CREATE TABLE IF NOT EXISTS views (
+  id TEXT PRIMARY KEY,
+  spec TEXT NOT NULL,
+  epoch TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+)`,
+    `CREATE INDEX IF NOT EXISTS views_expires ON views (expires_at)`,
+  ],
 ];
 
 let schemaReady = false;
