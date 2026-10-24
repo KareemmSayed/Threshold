@@ -2,7 +2,8 @@ import { createExecutionContext, createScheduledController, waitOnExecutionConte
 import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../../src/index";
-import { ensureSchema } from "../../src/archive/schema";
+import { ensureSchema, MIGRATIONS } from "../../src/archive/schema";
+import { FIT_PENDING } from "../../src/archive/sync";
 import { addDays, todayIn } from "../../src/util/dates";
 import { createMockGarmin, type MockGarmin, type MockOptions } from "../helpers/mock-garmin";
 
@@ -429,5 +430,43 @@ describe("background sync", () => {
     await worker.scheduled(createScheduledController({ cron: "*/10 * * * *" }), env, ctx2);
     await waitOnExecutionContext(ctx2);
     expect(garmin.calls.length).toBe(before);
+  });
+});
+
+describe("archive repairs", () => {
+  it("queues activities with impossible efforts for a fresh decode", async () => {
+    const [glitched, sane] = [9_000_000_001, 9_000_000_002];
+    const activity = (id: number) =>
+      env.DB.prepare(`INSERT INTO activities (activity_id, sport, date, fit_status, fit_attempts, fit_vo2max, fit_json) VALUES (?, 'running', '2026-07-17', 'done', 1, 50, '{}')`).bind(id);
+    const effort = (id: number, name: string, kind: string, value: number) =>
+      env.DB.prepare(`INSERT INTO best_efforts (activity_id, date, sport, effort, kind, value) VALUES (?, '2026-07-17', 'running', ?, ?, ?)`).bind(id, name, kind, value);
+    await env.DB.batch([
+      activity(glitched),
+      activity(sane),
+      effort(glitched, "400m", "time_s", 1),
+      effort(glitched, "5k", "time_s", 2393),
+      effort(glitched, "5min", "power_w", 300),
+      effort(sane, "1k", "time_s", 250),
+    ]);
+    await env.DB.batch(MIGRATIONS[1].map((sql) => env.DB.prepare(sql)));
+
+    const { results } = await env.DB.prepare(
+      `SELECT activity_id, fit_status, fit_attempts, fit_json, fit_vo2max, ${FIT_PENDING} AS pending FROM activities WHERE activity_id IN (?, ?) ORDER BY activity_id`,
+    )
+      .bind(glitched, sane)
+      .all();
+    expect(results).toEqual([
+      { activity_id: glitched, fit_status: null, fit_attempts: 0, fit_json: null, fit_vo2max: 50, pending: 1 },
+      { activity_id: sane, fit_status: "done", fit_attempts: 1, fit_json: "{}", fit_vo2max: 50, pending: 0 },
+    ]);
+    const efforts = await env.DB.prepare(`SELECT activity_id, effort FROM best_efforts WHERE activity_id IN (?, ?) ORDER BY activity_id`).bind(glitched, sane).all();
+    expect(efforts.results).toEqual([
+      { activity_id: glitched, effort: "5min" },
+      { activity_id: sane, effort: "1k" },
+    ]);
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM activities WHERE activity_id IN (?, ?)`).bind(glitched, sane),
+      env.DB.prepare(`DELETE FROM best_efforts WHERE activity_id IN (?, ?)`).bind(glitched, sane),
+    ]);
   });
 });

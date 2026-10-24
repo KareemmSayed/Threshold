@@ -1,11 +1,12 @@
 import { Decoder, Stream } from "@garmin/fitsdk";
 import { describe, expect, it } from "vitest";
-import { analyzeFit, bestAverages, bestDistanceEfforts, normalizedPower, pace } from "../../src/fit/analyze";
+import { analyzeFit, bestAverages, bestDistanceEfforts, DISTANCE_EFFORTS, MAX_STEP_MPS, normalizedPower, pace } from "../../src/fit/analyze";
 import { decodeFit, extractFit, FitDecodeError } from "../../src/fit/decode";
 import { syntheticActivity, zipped } from "../helpers/fit-writer";
 
 const START = Date.parse("2026-10-20T05:15:00Z") / 1000;
-const run = syntheticActivity({ start: START, speed: (t) => (t >= 1200 && t < 1450 ? 4 : 3) });
+const fast = (t: number) => (t >= 1200 && t < 1450 ? 4 : 3); // a genuine 1 km at 4:10/km
+const run = syntheticActivity({ start: START, speed: fast });
 
 describe("decodeFit", () => {
   it("matches Garmin's SDK record for record", () => {
@@ -131,6 +132,39 @@ describe("analyzeFit", () => {
     expect(ride.summary.normalized_power_w).toBeGreaterThan(225);
     expect(ride.summary.training_stress_score).toBeGreaterThan(0);
     expect(ride.durability?.output).toBe("power");
+  });
+});
+
+describe("best efforts with bad GPS", () => {
+  const running = (fit: Uint8Array) => bestDistanceEfforts(decodeFit(fit).records, DISTANCE_EFFORTS.running, MAX_STEP_MPS.running);
+
+  it("drops distance spikes but keeps the genuine fast kilometre", () => {
+    // A 900 m jump that stays, and a 500 m spike that snaps back a second later.
+    const spiked = syntheticActivity({ start: START, speed: fast, distanceOffset: (t) => (t >= 2400 ? 900 : 0) + (t === 3000 ? 500 : 0) });
+    expect(bestDistanceEfforts(decodeFit(spiked).records, [["1k", 1000]])["1k"].time_s).toBe(34); // unguarded: the jump wins
+    const efforts = running(spiked);
+    expect(efforts["1k"]).toEqual({ time_s: 250, start_offset_s: 1199 });
+    expect(efforts["400m"].time_s).toBe(100);
+    expect(efforts["1mi"].time_s).toBe(453);
+    expect(efforts["10k"].time_s).toBe(3253); // 3250 s, plus 3 s for the 9 m of real running the glitch steps swallowed
+    const archived = analyzeFit(decodeFit(spiked)).archive.efforts;
+    expect(archived.find((e) => e.effort === "1k")?.value).toBe(250);
+  });
+
+  it("ignores a drive home with the watch still recording", () => {
+    const drive = syntheticActivity({ start: START, speed: (t) => (t >= 3300 ? 11 : fast(t)) }); // 40 km/h, under the step limit
+    expect(bestDistanceEfforts(decodeFit(drive).records, [["1k", 1000]])["1k"].time_s).toBe(91); // unguarded: the car wins
+    const efforts = running(drive);
+    expect(efforts["1k"]).toEqual({ time_s: 250, start_offset_s: 1199 });
+    expect(efforts["400m"].time_s).toBe(100);
+    expect(efforts["5k"].start_offset_s + efforts["5k"].time_s).toBeLessThanOrEqual(3300); // no effort crosses into the drive
+  });
+
+  it("keeps pool swims, whose distance steps a length at a time", () => {
+    // 1 m/s in a 25 m pool: the distance jumps 25 m once every 25 s.
+    const pool = syntheticActivity({ start: START, sport: 5, seconds: 1800, speed: () => 1, distanceOffset: (t) => 25 * Math.floor((t + 1) / 25) - (t + 1) });
+    const efforts = bestDistanceEfforts(decodeFit(pool).records, DISTANCE_EFFORTS.swimming, MAX_STEP_MPS.swimming);
+    expect(Object.keys(efforts)).toEqual(["100m_swim", "400m_swim", "1500m_swim"]);
   });
 });
 
