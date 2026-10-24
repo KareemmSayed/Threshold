@@ -23,6 +23,7 @@ Key facts:
 - metric_trend: trend and previous-period comparison for any metric
 - analyze_activity: FIT-file analysis (splits, HR zones, best efforts, decoupling, NP/IF/TSS, hidden VO2 max)
 - personal_records: fastest distances and power curve across history
+- show_view: shows results as a card in Threshold's design (MCP Apps inline in Claude, ChatGPT, VS Code and Goose; a private link elsewhere), built from server-side presets or fixed block types
 - list_activities, get_health_data, get_day_detail, get_activity, get_profile, query_archive, sync_now, server_status, garmin_api_get
 
 ## Optional

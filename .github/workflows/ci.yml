@@ -27,3 +27,5 @@ jobs:
         run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
       - name: FIT profile is up to date
         run: npm run gen:fit-profile && git diff --exit-code src/fit/profile.ts
+      - name: View assets are up to date
+        run: npm run gen:view && git diff --exit-code src/view/assets.ts

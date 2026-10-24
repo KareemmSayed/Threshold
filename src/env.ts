@@ -27,6 +27,8 @@ export interface Env {
   GARMIN_API_BASE_URL?: string;
   /** Optional. Canonical public origin, e.g. https://threshold.example.com. Defaults to the request origin. */
   PUBLIC_URL?: string;
+  /** Optional. Hours a show_view private link stays open (default 24, max 720). `0` turns links off. */
+  VIEW_LINK_HOURS?: string;
 }
 
 export interface Limits {

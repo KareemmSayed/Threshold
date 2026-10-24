@@ -17,6 +17,8 @@ type Level = "good" | "ok" | "caution" | "warning";
 interface Signal {
   signal: string;
   level: Level;
+  /** The headline number, short enough for a chip: "47 bpm · +1". */
+  reading: string;
   detail: string;
 }
 
@@ -33,6 +35,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "HRV",
       level,
+      reading: `${hrv.rolling_7d_ms ?? "?"} ms · ${hrv.status_7d}`,
       detail: `7-day avg ${hrv.rolling_7d_ms ?? "?"} ms from ${hrv.nights_in_7d} of 7 nights vs normal ${hrv.normal_range_ms ? hrv.normal_range_ms.join("-") : "n/a"} ms (${hrv.status_7d}${hrv.confidence === "low" ? ", low confidence" : ""}); last night ${hrv.last_night_ms ?? "?"} ms${hrv.last_night_z !== null ? `, z ${hrv.last_night_z}` : ""}.`,
     });
   }
@@ -40,6 +43,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "Resting HR",
       level: rhr.status === "elevated" ? (rhr.delta_bpm !== null && rhr.delta_bpm >= 5 ? "warning" : "caution") : "good",
+      reading: `${rhr.rolling_7d_bpm ?? "?"} bpm · ${rhr.delta_bpm !== null && rhr.delta_bpm > 0 ? "+" : ""}${rhr.delta_bpm ?? "?"}`,
       detail: `7-day avg ${rhr.rolling_7d_bpm ?? "?"} bpm vs baseline ${rhr.baseline_bpm ?? "?"} bpm (${rhr.delta_bpm !== null && rhr.delta_bpm > 0 ? "+" : ""}${rhr.delta_bpm ?? "?"}).`,
     });
   }
@@ -49,6 +53,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "Sleep",
       level,
+      reading: `${hoursMinutes(h * 3600)}${sleep.last_night.score ? ` · score ${sleep.last_night.score}` : ""}`,
       detail: `Last night ${hoursMinutes(h * 3600)}${sleep.last_night.score ? `, score ${sleep.last_night.score}` : ""}; 7-day avg ${sleep.avg_7d_hours ?? "?"} h vs usual ${sleep.baseline_hours ?? "?"} h.`,
     });
   }
@@ -58,6 +63,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "Body Battery",
       level: bbHigh < 40 ? "warning" : bbHigh < 60 ? "caution" : "good",
+      reading: `charged to ${bbHigh}`,
       detail: `Charged to ${bbHigh} today${usual !== null ? ` (30-day avg ${Math.round(usual)})` : ""}.`,
     });
   }
@@ -68,6 +74,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "Training form",
       level: pct < -30 ? "warning" : pct < -10 ? "ok" : "good",
+      reading: `TSB ${tsb}`,
       detail: `TSB ${tsb} (CTL ${ctl}, ATL ${load.current.fatigue_atl}): ${load.current.form}.`,
     });
   }
@@ -76,6 +83,7 @@ export function briefing(date: string, rows: DailyRow[], activities: ActivityRow
     signals.push({
       signal: "Load ramp",
       level: r > 1.5 ? "warning" : r > 1.3 ? "caution" : "good",
+      reading: `ACWR ${r}`,
       detail: `ACWR ${r}: ${load.current.acwr_zone}.`,
     });
   }

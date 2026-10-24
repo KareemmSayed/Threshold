@@ -38,7 +38,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && wrangler deploy --dry-run --outdir .wrangler/dry-run",
-    "gen:fit-profile": "node scripts/gen-fit-profile.mjs"
+    "gen:fit-profile": "node scripts/gen-fit-profile.mjs",
+    "gen:view": "node scripts/gen-view.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.4",
