@@ -14,6 +14,12 @@ const activityColumns = ACTIVITY_COLUMNS.filter((c) => c !== "activity_id")
   .map((c) => `${c} ${TEXT_ACTIVITY.has(c) ? "TEXT" : "REAL"}`)
   .join(",\n  ");
 
+/** Activities with a distance effort faster than its limit. Part of migration 3: a frozen copy of DISTANCE_EFFORTS in src/fit/analyze.ts. */
+const IMPOSSIBLE_EFFORTS = `SELECT activity_id FROM best_efforts WHERE kind = 'time_s' AND value < CASE effort
+  WHEN '400m' THEN 43 WHEN '1k' THEN 131 WHEN '1mi' THEN 223 WHEN '5k' THEN 755 WHEN '10k' THEN 1571 WHEN 'half' THEN 3402 WHEN 'marathon' THEN 7235
+  WHEN '10k_bike' THEN 400 WHEN '20k_bike' THEN 800 WHEN '40k_bike' THEN 1600 WHEN '100k_bike' THEN 4000
+  WHEN '100m_swim' THEN 44 WHEN '400m_swim' THEN 212 WHEN '1500m_swim' THEN 840 END`;
+
 /** Each entry is one schema version. Never edit a shipped entry; append a new one. */
 export const MIGRATIONS: string[][] = [
   [
@@ -68,6 +74,12 @@ export const MIGRATIONS: string[][] = [
   expires_at INTEGER NOT NULL
 )`,
     `CREATE INDEX IF NOT EXISTS views_expires ON views (expires_at)`,
+  ],
+  // Before GPS glitches were filtered, some files produced efforts faster than the world records.
+  // Queue those activities for a fresh decode and drop their distance efforts until then.
+  [
+    `UPDATE activities SET fit_status = NULL, fit_attempts = 0, fit_json = NULL WHERE activity_id IN (${IMPOSSIBLE_EFFORTS})`,
+    `DELETE FROM best_efforts WHERE kind = 'time_s' AND activity_id IN (${IMPOSSIBLE_EFFORTS})`,
   ],
 ];
 
