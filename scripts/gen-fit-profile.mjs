@@ -21,7 +21,8 @@ for (const num of Object.keys(MESSAGES)) {
 }
 
 const enums = {};
-for (const name of ["sport", "subSport", "hrZoneCalc", "pwrZoneCalc", "mesgNum", "file", "intensity", "lapTrigger"]) {
+// garminProduct names the recording device (file_id.product), which is how a change of watch is noticed.
+for (const name of ["sport", "subSport", "hrZoneCalc", "pwrZoneCalc", "mesgNum", "file", "intensity", "lapTrigger", "swimStroke", "garminProduct"]) {
   enums[name] = Object.fromEntries(Object.entries(Profile.types[name]).filter(([k]) => /^\d+$/.test(k)));
 }
 

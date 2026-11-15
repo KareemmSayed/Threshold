@@ -1,6 +1,6 @@
 # Threshold: Garmin MCP Server
 
-> Threshold is an open-source, self-hosted Model Context Protocol (MCP) server that connects Garmin Connect data to AI assistants such as Claude, ChatGPT, Cursor, VS Code, Codex and Gemini CLI. It uses Garmin's official Personal API (no password), runs free on Cloudflare Workers, and computes training and recovery analysis in code: readiness, HRV baseline, training load (CTL/ATL/TSB, ACWR), best efforts, aerobic decoupling, and VO2 max decoded from FIT files.
+> Threshold is an open-source, self-hosted Model Context Protocol (MCP) server that connects Garmin Connect data to AI assistants such as Claude, ChatGPT, Cursor, VS Code, Codex and Gemini CLI. It uses Garmin's official Personal API (no password), runs free on Cloudflare Workers, and computes training and recovery analysis in code: readiness, HRV baseline, training load (CTL/ATL/TSB, ACWR), interval sessions rep by rep, best efforts and records, race predictions, load forecasts, aerobic decoupling, and VO2 max decoded from FIT files.
 
 Key facts:
 - License: MIT. Repository: https://github.com/KareemmSayed/Threshold
@@ -13,16 +13,23 @@ Key facts:
 ## Docs
 - [README](https://github.com/KareemmSayed/Threshold/blob/main/README.md): features, quick start, client setup, FAQ
 - [Connect your AI](https://github.com/KareemmSayed/Threshold#connect-your-ai): Claude, ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf, mcp-remote
+- [Changelog](https://github.com/KareemmSayed/Threshold/blob/main/CHANGELOG.md): what each version added and changed
 - [Security](https://github.com/KareemmSayed/Threshold/blob/main/SECURITY.md): threat model and key rotation
 
 ## Tools
-- daily_briefing: readiness today from HRV, resting HR, sleep, Body Battery, training form and load ramp versus personal baselines
-- recovery_analysis: HRV on a 60-day baseline of ln(Garmin overnight HRV), resting-HR drift, sleep versus usual
+- daily_briefing: readiness today from HRV, resting HR, sleep, overnight stress, sleep breathing rate, Body Battery, training form and load ramp versus personal baselines; works without HRV; says when last night has not synced; counts down to the next race
+- recovery_analysis: HRV on a 60-day baseline of ln(Garmin overnight HRV), resting-HR drift, overnight stress and sleep breathing rate, an illness watch, sleep versus usual with sleep debt and bedtime regularity
 - training_load: CTL, ATL, TSB, ACWR, monotony, strain, weekly load by sport
-- weekly_report: week-by-week volume, intensity split, recovery, week-over-week change
+- training_status: productive, maintaining, peaking, recovery, unproductive, overreaching or detraining from load and the VO2 max trend, plus load focus (low aerobic, high aerobic, anaerobic)
+- weekly_report: week-by-week volume, session types, intensity split, records, recovery, week-over-week change
 - metric_trend: trend and previous-period comparison for any metric
-- analyze_activity: FIT-file analysis (splits, HR zones, best efforts, decoupling, NP/IF/TSS, hidden VO2 max)
-- personal_records: fastest distances and power curve across history
+- analyze_activity: FIT-file analysis (interval reps, splits, HR zones, best efforts with records, decoupling, running form, strength sets, NP/IF/TSS, hidden VO2 max)
+- compare_workouts: one workout against earlier sessions of the same kind (same reps, or steady efforts of the same length)
+- personal_records: fastest distances from 200 m to the marathon, power curve and heart-rate peaks across history
+- race_predictor: race times and training paces from recent best efforts (VDOT, Riegel, critical speed); FTP, critical power and power zones for cycling
+- load_forecast: fitness, fatigue and form projected to a date for a plan: train as usual, taper or rest
+- correlate: how two daily metrics move together, with a lag
+- race_calendar: the athlete's target races, used by the briefing, predictor and forecast
 - show_view: shows results as a card in Threshold's design (MCP Apps inline in Claude, ChatGPT, VS Code and Goose; a private link elsewhere), built from server-side presets or fixed block types
 - list_activities, get_health_data, get_day_detail, get_activity, get_profile, query_archive, sync_now, server_status, garmin_api_get
 

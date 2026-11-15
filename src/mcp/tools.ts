@@ -1,20 +1,21 @@
 /** Every MCP tool. Each handler builds its own context, so tool calls are independent. */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ARCHIVED_DATASETS, type ArchivedDataset } from "../archive/flatten";
+import { nextEvent } from "../archive/events";
+import { ARCHIVED_DATASETS, exerciseSets, type ArchivedDataset } from "../archive/flatten";
 import { SCHEMA_GUIDE } from "../archive/schema";
 import { runReadOnly } from "../archive/sql";
 import { getMeta, readActivities, readActivity, readDaily, type ActivityRow } from "../archive/store";
-import { backfillState, ensureActivities, ensureDaily, FIT_PENDING, importFit } from "../archive/sync";
+import { backfillState, ensureActivities, ensureDaily, FIT_ANALYSIS_VERSION, FIT_PENDING, importFit } from "../archive/sync";
 import { loadChart, loadReport, loadWarmupStart } from "../analysis/load";
 import { briefing } from "../analysis/readiness";
-import { hrvReport, rhrReport, sleepReport } from "../analysis/recovery";
+import { hrvReport, illnessWatch, overnightStressReport, rhrReport, sleepReport, sleepRespirationReport } from "../analysis/recovery";
 import { finite, round } from "../analysis/stats";
-import { METRICS, metricTrend, type Granularity } from "../analysis/trends";
+import { DATASET_FOR_METRIC, fromActivities, METRICS, metricTrend, type Granularity } from "../analysis/trends";
 import { weeklyReport, type BestEffortRow } from "../analysis/weekly";
-import { createContext, hrvBaselineFrom, keyExpiry, loadProfile, zoneFloorsFor, type AppContext } from "../context";
+import { createContext, keyExpiry, loadProfile, resolveHrvBaseline, zoneCheck, zoneFloorsFor, type AppContext } from "../context";
 import { MIN_ACCESS_KEY_LENGTH, SERVER_VERSION, type Env } from "../env";
-import { analyzeFit, formatDuration, pace } from "../fit/analyze";
+import { analyzeFit, EFFORT_METERS, formatDuration, pace, type Analysis } from "../fit/analyze";
 import { decodeFit, extractFit } from "../fit/decode";
 import { jwtClaims, type GarminClientOptions } from "../garmin/client";
 import { compact } from "../garmin/compact";
@@ -27,9 +28,9 @@ export const dateArg = z
   .refine((v) => v === "today" || v === "yesterday" || isIsoDate(v), "Use YYYY-MM-DD, 'today' or 'yesterday'")
   .describe("YYYY-MM-DD, 'today' or 'yesterday' (in the athlete's time zone)");
 
-const READ = { readOnlyHint: true, openWorldHint: true } as const;
+export const READ = { readOnlyHint: true, openWorldHint: true } as const;
 
-function resolveDate(ctx: AppContext, value: string | undefined, fallback = ctx.today): string {
+export function resolveDate(ctx: AppContext, value: string | undefined, fallback = ctx.today): string {
   if (!value) return fallback;
   if (value === "today") return ctx.today;
   if (value === "yesterday") return addDays(ctx.today, -1);
@@ -47,22 +48,36 @@ function resolveRange(ctx: AppContext, start: string | undefined, end: string | 
 
 const km = (m: number | null) => (finite(m) ? round(m / 1000, 2) : null);
 
-function activitySummary(a: ActivityRow, unit: "km" | "mi") {
+/** Rows of objects as one header plus compact rows. Columns nobody filled are dropped. */
+export function columnar(rows: Array<Record<string, unknown>>): { columns: string[]; rows: unknown[][] } {
+  const columns: string[] = [];
+  for (const r of rows) for (const k of Object.keys(r)) if (r[k] !== null && r[k] !== undefined && !columns.includes(k)) columns.push(k);
+  return { columns, rows: rows.map((r) => columns.map((c) => r[c] ?? null)) };
+}
+
+export function activitySummary(a: ActivityRow, unit: "km" | "mi") {
   const moving = a.moving_s ?? a.duration_s;
   const speed = a.avg_speed_mps ?? (a.distance_m && moving ? a.distance_m / moving : null);
   const footSport = a.sport === "running" || a.sport === "walking" || a.sport === "hiking";
+  const swim = a.sport === "swimming";
+  // The activity file's heart rate has sensor spikes removed; Garmin's own maximum may be one.
+  const maxHr = a.fit_max_hr ?? a.max_hr;
   return {
     id: a.activity_id,
     date: a.date,
     start: a.start_local?.slice(11, 16),
     name: a.name,
     type: a.type,
+    // The rep structure of an interval session ("10 x 1000 m"), else the session type.
+    workout: a.workout_structure ?? (a.workout_type && a.workout_type !== "other" ? a.workout_type : undefined),
+    race: a.event_type === "race" ? true : undefined,
     distance_km: km(a.distance_m),
     duration: a.duration_s ? formatDuration(a.duration_s) : null,
     pace: footSport ? pace(speed, unit) : undefined,
-    speed_kmh: !footSport && finite(speed) && a.sport !== "strength" ? round(speed * 3.6, 1) : undefined,
+    pace_per_100m: swim && finite(speed) && speed > 0.1 ? formatDuration(100 / speed) : undefined,
+    speed_kmh: !footSport && !swim && finite(speed) && a.sport !== "strength" ? round(speed * 3.6, 1) : undefined,
     avg_hr: finite(a.avg_hr) ? Math.round(a.avg_hr) : null,
-    max_hr: finite(a.max_hr) ? Math.round(a.max_hr) : null,
+    max_hr: finite(maxHr) ? Math.round(maxHr) : null,
     avg_power_w: finite(a.avg_power_w) ? Math.round(a.avg_power_w) : null,
     elevation_m: finite(a.elevation_gain_m) ? Math.round(a.elevation_gain_m) : null,
     training_load: finite(a.garmin_load) ? Math.round(a.garmin_load) : null,
@@ -71,6 +86,9 @@ function activitySummary(a: ActivityRow, unit: "km" | "mi") {
     effect: a.training_effect_label,
     vo2max: a.vo2max ?? a.fit_vo2max,
     decoupling_pct: a.decoupling_pct,
+    sets: a.total_sets ?? undefined,
+    reps: a.total_reps ?? undefined,
+    swolf: a.swolf ?? undefined,
   };
 }
 
@@ -82,7 +100,7 @@ export interface ToolDeps {
 }
 
 /** Wrap a handler: build the context, run, format, and turn errors into readable tool errors. */
-function run<A>(deps: ToolDeps, handler: Handler<A>) {
+export function run<A>(deps: ToolDeps, handler: Handler<A>) {
   return async (args: A) => {
     let ctx: AppContext | undefined;
     try {
@@ -95,15 +113,11 @@ function run<A>(deps: ToolDeps, handler: Handler<A>) {
   };
 }
 
-const DAILY_FOR_METRIC: Record<string, ArchivedDataset> = {
-  hrv: "hrv",
-  sleep_hours: "sleep",
-  sleep_score: "sleep",
-  deep_sleep_min: "sleep",
-  rem_sleep_min: "sleep",
-  weight_kg: "weight",
-  body_fat_pct: "weight",
-};
+/** The datasets a metric needs in the archive before it can be read. */
+export async function ensureMetric(ctx: AppContext, metric: string, from: string, end: string): Promise<void> {
+  if (fromActivities(metric)) await ensureActivities(ctx, from, end);
+  else await ensureDaily(ctx, [(DATASET_FOR_METRIC[metric] ?? "daily_summaries") as ArchivedDataset], from, end);
+}
 
 // The analysis behind each tool, shared with show_view's presets so a view shows exactly what the tool computed.
 
@@ -114,8 +128,8 @@ export async function briefingData(ctx: AppContext, { date }: { date?: string })
   const warmup = loadWarmupStart(day);
   await ensureActivities(ctx, warmup, day);
   const { facts } = await loadProfile(ctx);
-  const [rows, acts] = await Promise.all([readDaily(ctx.db, from, day), readActivities(ctx.db, warmup, day)]);
-  return { data: briefing(day, rows, acts, facts, warmup, { baselineFrom: hrvBaselineFrom(ctx.env) }) };
+  const [rows, acts, baseline, event] = await Promise.all([readDaily(ctx.db, from, day), readActivities(ctx.db, warmup, day), resolveHrvBaseline(ctx), nextEvent(ctx.db, day)]);
+  return { data: briefing(day, rows, acts, facts, warmup, { ...baseline, today: ctx.today, now: ctx.now, event }) };
 }
 
 /** `withChart` adds the daily CTL/ATL/TSB series for views; the tool leaves it out to stay compact. */
@@ -133,8 +147,46 @@ export async function recoveryData(ctx: AppContext, { date }: { date?: string })
   const day = resolveDate(ctx, date);
   const from = addDays(day, -67);
   await ensureDaily(ctx, ["daily_summaries", "sleep", "hrv"], from, day);
-  const rows = await readDaily(ctx.db, from, day);
-  return { data: { date: day, hrv: hrvReport(rows, day, { baselineFrom: hrvBaselineFrom(ctx.env) }), resting_hr: rhrReport(rows, day), sleep: sleepReport(rows, day) } };
+  const [rows, baseline] = await Promise.all([readDaily(ctx.db, from, day), resolveHrvBaseline(ctx)]);
+  const hrv = hrvReport(rows, day, baseline);
+  const rhr = rhrReport(rows, day);
+  const stress = overnightStressReport(rows, day);
+  const respiration = sleepRespirationReport(rows, day);
+  return {
+    data: {
+      date: day,
+      hrv,
+      resting_hr: rhr,
+      sleep: sleepReport(rows, day),
+      overnight_stress: stress,
+      sleep_respiration: respiration,
+      illness_watch: illnessWatch({ hrv, rhr, stress, respiration }),
+    },
+  };
+}
+
+/**
+ * Best efforts in a date range, each with the best value recorded before it: all-time and in
+ * the twelve months before. One pass over the table with window functions.
+ */
+export async function effortsWithHistory(ctx: AppContext, start: string, end: string): Promise<BestEffortRow[]> {
+  const { results } = await ctx.db
+    .prepare(
+      `SELECT activity_id, date, sport, effort, kind, value, prior, best_before, prior_12mo, best_before_12mo FROM (
+  SELECT activity_id, date, sport, effort, kind, value,
+    COUNT(*) OVER w_all AS prior,
+    CASE WHEN kind = 'time_s' THEN MIN(value) OVER w_all ELSE MAX(value) OVER w_all END AS best_before,
+    COUNT(*) OVER w_year AS prior_12mo,
+    CASE WHEN kind = 'time_s' THEN MIN(value) OVER w_year ELSE MAX(value) OVER w_year END AS best_before_12mo
+  FROM best_efforts
+  WHERE kind IN ('time_s', 'power_w') AND date <= ?
+  WINDOW w_all AS (PARTITION BY sport, effort ORDER BY julianday(date) RANGE BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),
+    w_year AS (PARTITION BY sport, effort ORDER BY julianday(date) RANGE BETWEEN 365 PRECEDING AND 1 PRECEDING)
+) WHERE date BETWEEN ? AND ?`,
+    )
+    .bind(end, start, end)
+    .all<BestEffortRow>();
+  return results;
 }
 
 export async function weeklyData(ctx: AppContext, { weeks, end_date }: { weeks: number; end_date?: string }) {
@@ -143,12 +195,8 @@ export async function weeklyData(ctx: AppContext, { weeks, end_date }: { weeks: 
   await ensureDaily(ctx, ARCHIVED_DATASETS, first, end);
   await ensureActivities(ctx, first, end);
   const { facts } = await loadProfile(ctx);
-  const [rows, acts, efforts] = await Promise.all([
-    readDaily(ctx.db, first, end),
-    readActivities(ctx.db, first, end),
-    ctx.db.prepare(`SELECT * FROM best_efforts WHERE date BETWEEN ? AND ?`).bind(first, end).all<BestEffortRow>(),
-  ]);
-  const report = weeklyReport(rows, acts, efforts.results, facts, first, end);
+  const [rows, acts, efforts] = await Promise.all([readDaily(ctx.db, first, end), readActivities(ctx.db, first, end), effortsWithHistory(ctx, first, end)]);
+  const report = weeklyReport(rows, acts, efforts, facts, first, end);
   report.weeks = report.weeks.slice(1);
   return { data: report };
 }
@@ -157,12 +205,10 @@ export async function trendData(ctx: AppContext, a: { metric: string; days: numb
   const end = resolveDate(ctx, a.end_date);
   const start = addDays(end, -(a.days - 1));
   const from = a.compare_previous ? addDays(start, -a.days) : start;
-  const metric = METRICS[a.metric];
-  const fromActivities = typeof metric.source !== "function";
-  if (fromActivities) await ensureActivities(ctx, from, end);
-  else await ensureDaily(ctx, [DAILY_FOR_METRIC[a.metric] ?? "daily_summaries"], from, end);
+  const byActivity = fromActivities(a.metric);
+  await ensureMetric(ctx, a.metric, from, end);
   const { facts } = await loadProfile(ctx);
-  const [rows, acts] = await Promise.all([fromActivities ? [] : readDaily(ctx.db, from, end), fromActivities ? readActivities(ctx.db, from, end) : []]);
+  const [rows, acts] = await Promise.all([byActivity ? [] : readDaily(ctx.db, from, end), byActivity ? readActivities(ctx.db, from, end) : []]);
   const cur = (r: { date: string | null }) => (r.date ?? "") >= start;
   return {
     data: metricTrend(
@@ -193,18 +239,25 @@ export async function activityData(ctx: AppContext, a: { activity_id?: number; s
   const { facts } = await loadProfile(ctx);
   const row = await readActivity(ctx.db, id);
   const unit = a.split_unit ?? facts.unit;
-  const garmin = row ? activitySummary(row, unit) : undefined;
   const simple = !a.samples && !a.include_route && !a.include_raw_hidden && unit === facts.unit;
-  if (simple && row?.fit_status === "done" && row.fit_json) {
-    return { data: { activity: garmin, analysis: JSON.parse(row.fit_json), source: "archive (decoded FIT file)" } };
+  const result = async (analysis: ActivityAnalysis | null, source: string | undefined, current: typeof row): Promise<ActivityData> => ({
+    activity: current ? activitySummary(current, unit) : { id },
+    analysis,
+    records: analysis ? await effortRecords(ctx, id, unit) : undefined,
+    strength: current ? strengthOf(current) : undefined,
+    source,
+  });
+  // An analysis from an older version lacks today's sections, so it is decoded again.
+  if (simple && row?.fit_status === "done" && (row.fit_version ?? 1) >= FIT_ANALYSIS_VERSION && row.fit_json) {
+    return { data: await result(JSON.parse(row.fit_json) as ActivityAnalysis, "archive (decoded FIT file)", row) };
   }
   if (simple && row) {
     const imported = await importFit(ctx, id);
     if (imported.analysis) {
       const { archive: _archive, samples: _samples, ...analysis } = imported.analysis;
-      return { data: { activity: garmin, analysis, source: "FIT file" } };
+      return { data: await result(analysis, "FIT file", await readActivity(ctx.db, id)) };
     }
-    return { data: { activity: garmin, analysis: null }, notes: [`The FIT file could not be analyzed: ${imported.error ?? imported.status}`] };
+    return { data: await result(null, undefined, row), notes: [`The FIT file could not be analyzed: ${imported.error ?? imported.status}`] };
   }
   const fit = decodeFit(await extractFit(await downloadActivity(ctx.garmin(), id)));
   const sport = String(fit.sessions[0]?.sport ?? "");
@@ -216,7 +269,137 @@ export async function activityData(ctx: AppContext, a: { activity_id?: number; s
     route: a.include_route,
     rawHidden: a.include_raw_hidden,
   });
-  return { data: { activity: garmin ?? { id }, analysis, source: "FIT file" } };
+  return { data: await result(analysis, "FIT file", row) };
+}
+
+export type ActivityAnalysis = Omit<Analysis, "archive">;
+
+export interface ActivityData {
+  activity: ReturnType<typeof activitySummary> | { id: number };
+  analysis: ActivityAnalysis | null;
+  /** This session's best efforts that rank in the athlete's top three. */
+  records?: EffortRecord[];
+  strength?: ReturnType<typeof strengthOf>;
+  source?: string;
+}
+
+export interface EffortRecord {
+  effort: string;
+  time?: string;
+  pace?: string | null;
+  watts?: number;
+  /** Rank among every activity archived, when in the top three. */
+  all_time_rank?: number;
+  /** Rank within the twelve months up to this activity, when first. */
+  rank_12_months?: number;
+  /** The best of the other activities. */
+  other_best?: string | number;
+  other_best_date?: string;
+}
+
+/** Sets and exercises of a strength session, from Garmin's activity record. */
+function strengthOf(row: { sport: string; raw_json: string | null; total_sets: number | null; total_reps: number | null }) {
+  if (row.sport !== "strength" || !row.raw_json) return undefined;
+  let exercises: ReturnType<typeof exerciseSets> = [];
+  try {
+    exercises = exerciseSets(JSON.parse(row.raw_json));
+  } catch {
+    // A broken record just has no exercise list.
+  }
+  if (!exercises.length && !row.total_sets) return undefined;
+  return {
+    sets: row.total_sets,
+    reps: row.total_reps,
+    exercises: exercises.length ? exercises : undefined,
+    note: exercises.length ? "Exercises are the watch's own guesses unless they were edited in Garmin Connect." : undefined,
+  };
+}
+
+/**
+ * Where this activity's best efforts rank: in the top three of all time, or first in the
+ * twelve months before it. Needs three other activities with the same effort to rank against.
+ */
+export async function effortRecords(ctx: AppContext, activityId: number, unit: "km" | "mi"): Promise<EffortRecord[] | undefined> {
+  const { results: own } = await ctx.db
+    .prepare(`SELECT effort, kind, value, date, sport FROM best_efforts WHERE activity_id = ? AND kind IN ('time_s', 'power_w')`)
+    .bind(activityId)
+    .all<{ effort: string; kind: string; value: number; date: string; sport: string }>();
+  if (!own.length) return undefined;
+  type Top = { activity_id: number; value: number; date: string };
+  const lists = await ctx.db.batch<Top>(
+    own.flatMap((e) => {
+      const order = e.kind === "time_s" ? "ASC" : "DESC";
+      return [
+        ctx.db.prepare(`SELECT activity_id, value, date FROM best_efforts WHERE sport = ? AND effort = ? ORDER BY value ${order} LIMIT 4`).bind(e.sport, e.effort),
+        ctx.db
+          .prepare(`SELECT activity_id, value, date FROM best_efforts WHERE sport = ? AND effort = ? AND date BETWEEN ? AND ? ORDER BY value ${order} LIMIT 4`)
+          .bind(e.sport, e.effort, addDays(e.date, -365), e.date),
+      ];
+    }),
+  );
+  const out: EffortRecord[] = [];
+  own.forEach((e, i) => {
+    const allTime = lists[i * 2].results;
+    const year = lists[i * 2 + 1].results;
+    // Rank only against a real history: a full list of four means three other activities.
+    const rankIn = (top: Top[]) => (top.length >= 4 ? top.findIndex((t) => t.activity_id === activityId) + 1 : 0);
+    const allRank = rankIn(allTime);
+    const yearRank = rankIn(year);
+    if (!(allRank >= 1 && allRank <= 3) && yearRank !== 1) return;
+    const other = allTime.find((t) => t.activity_id !== activityId);
+    const power = e.kind === "power_w";
+    const meters = EFFORT_METERS[e.effort];
+    out.push({
+      effort: e.effort,
+      ...(power ? { watts: e.value } : { time: formatDuration(e.value), pace: meters ? pace(meters / e.value, unit) : undefined }),
+      all_time_rank: allRank >= 1 && allRank <= 3 ? allRank : undefined,
+      rank_12_months: yearRank === 1 ? 1 : undefined,
+      other_best: other ? (power ? other.value : formatDuration(other.value)) : undefined,
+      other_best_date: other?.date,
+    });
+  });
+  return out.length ? out : undefined;
+}
+
+export const ACTIVITY_SECTIONS = ["summary", "intervals", "splits", "laps", "zones", "best_efforts", "durability", "hidden", "form", "data_quality"] as const;
+export type ActivitySection = (typeof ACTIVITY_SECTIONS)[number];
+
+/**
+ * The tool's view of an activity: only the sections asked for, with the long lists (reps,
+ * splits, laps) as one header plus rows. By default the laps are left out, and so are the
+ * kilometre splits of an interval session, where they mix reps with rests.
+ */
+export function presentActivity(data: ActivityData, sections?: ActivitySection[]): { data: Record<string, unknown>; notes: string[] } {
+  const an = data.analysis;
+  const notes: string[] = [];
+  if (!an) return { data: { activity: data.activity, analysis: null, strength: data.strength }, notes };
+  const chosen = sections?.length ? new Set<ActivitySection>(sections) : null;
+  const want = (s: ActivitySection) => (chosen ? chosen.has(s) : s === "laps" ? false : s === "splits" ? !an.intervals : true);
+  const rows = (list: unknown) => columnar(list as Array<Record<string, unknown>>);
+  const out: Record<string, unknown> = { workout: an.workout };
+  if (want("summary")) out.summary = an.summary;
+  if (want("intervals") && an.intervals) out.intervals = { ...an.intervals, reps: rows(an.intervals.reps) };
+  if (want("splits") && an.splits) out.splits = rows(an.splits);
+  if (want("laps") && an.laps) out.laps = rows(an.laps);
+  if (want("zones")) out.hr_zones = an.hr_zones;
+  if (want("best_efforts")) {
+    out.best_efforts = an.best_efforts;
+    out.records = data.records;
+  }
+  if (want("durability")) {
+    out.durability = an.durability;
+    out.durability_note = an.durability_note;
+    out.efficiency_factor = an.efficiency_factor;
+  }
+  if (want("hidden")) out.hidden = an.hidden;
+  if (want("form")) out.form = an.form;
+  if (want("data_quality")) out.data_quality = an.data_quality;
+  if (an.samples) out.samples = an.samples;
+  if (!chosen) {
+    const left = [an.laps ? `laps (${an.laps.length})` : "", an.intervals && an.splits ? "splits" : ""].filter(Boolean);
+    if (left.length) notes.push(`Left out to stay short: ${left.join(", ")}. Ask for them with sections.`);
+  }
+  return { data: { activity: data.activity, analysis: out, strength: data.strength, source: data.source }, notes };
 }
 
 export async function recordsData(ctx: AppContext, a: { sport: string; start_date?: string; end_date?: string; top: number; import_missing: boolean }) {
@@ -242,14 +425,19 @@ export async function recordsData(ctx: AppContext, a: { sport: string; start_dat
   const byEffort = new Map<string, typeof efforts>();
   for (const e of efforts) byEffort.set(e.effort, [...(byEffort.get(e.effort) ?? []), e]);
   const records: Record<string, unknown> = {};
+  const peakHr: Record<string, unknown> = {};
   for (const [effort, list] of byEffort) {
-    const sorted = list.sort((x, y) => (x.kind === "power_w" ? y.value - x.value : x.value - y.value)).slice(0, a.top);
-    records[effort] = sorted.map((e) => ({
-      [e.kind === "power_w" ? "watts" : "time"]: e.kind === "power_w" ? e.value : formatDuration(e.value),
+    const kind = list[0].kind;
+    // Times are better when lower; watts and heart rate when higher.
+    const sorted = list.sort((x, y) => (kind === "time_s" ? x.value - y.value : y.value - x.value)).slice(0, a.top);
+    const entries = sorted.map((e) => ({
+      [kind === "power_w" ? "watts" : kind === "hr_bpm" ? "bpm" : "time"]: kind === "time_s" ? formatDuration(e.value) : e.value,
       date: e.date,
       activity_id: e.activity_id,
       name: e.name,
     }));
+    if (kind === "hr_bpm") peakHr[effort.replace(/_hr$/, "")] = entries;
+    else records[effort] = entries;
   }
   const extreme = async (column: string) =>
     ctx.db
@@ -266,7 +454,7 @@ export async function recordsData(ctx: AppContext, a: { sport: string; start_dat
       .first<{ total: number; decoded: number | null; pending: number | null }>(),
   ]);
   if ((coverage?.pending ?? 0) > 0) {
-    notes.push(`${coverage?.pending} ${a.sport} activities still wait for FIT import, so records may improve as the background sync continues.`);
+    notes.push(`${coverage?.pending} ${a.sport} activities still wait for their FIT file to be imported or analyzed again, so records may improve as the background sync continues.`);
   }
   return {
     data: {
@@ -274,6 +462,8 @@ export async function recordsData(ctx: AppContext, a: { sport: string; start_dat
       from: start === "1900-01-01" ? "all history" : start,
       to: end,
       best_efforts: records,
+      // Highest average heart rate held for each duration; a check on the max and threshold HR settings.
+      peak_heart_rate: Object.keys(peakHr).length ? peakHr : undefined,
       longest_distance: longest ? { km: km(longest.value), date: longest.date, activity_id: longest.activity_id, name: longest.name } : null,
       longest_duration: longestTime ? { duration: formatDuration(longestTime.value), date: longestTime.date, activity_id: longestTime.activity_id, name: longestTime.name } : null,
       most_climbing: climb ? { meters: Math.round(climb.value), date: climb.date, activity_id: climb.activity_id, name: climb.name } : null,
@@ -289,7 +479,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "Daily briefing",
       description:
-        "Start here for 'how am I today?', 'should I train hard?', 'am I recovered?'. Judges last night's HRV, resting HR, sleep, Body Battery, training form (TSB) and load ramp (ACWR) against the athlete's own 60-day baselines, and gives a green/amber/red call with the rule used. Numbers are computed by code; explain them, do not recompute.",
+        "Start here for 'how am I today?', 'should I train hard?', 'am I recovered?'. Judges HRV, resting HR, sleep, overnight stress, sleep breathing rate, Body Battery, training form (TSB) and load ramp (ACWR) against the athlete's own 60-day baselines, and gives a green/amber/red call with the rule used. Works without HRV. Also: an illness watch, the countdown to the next race in the calendar, and data_freshness, which says when last night has not synced from the watch yet (those signals are then left out of the call: say so before the verdict). Numbers are computed by code; explain them, do not recompute.",
       inputSchema: { date: dateArg.optional().describe("Day to brief. Default: today") },
       annotations: READ,
     },
@@ -316,7 +506,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "Recovery analysis",
       description:
-        "HRV against a personal 60-day baseline (ln of Garmin's overnight HRV average, 7-day rolling mean, normal band = baseline +/- 0.5 SD), resting HR drift, and sleep versus usual. Reports how many of the last 7 nights have HRV; with fewer than 5 the verdict is capped. Use for 'is my HRV trending down?', 'am I getting sick?', 'how is my recovery?'.",
+        "HRV against a personal 60-day baseline (ln of Garmin's overnight HRV average, 7-day rolling mean, normal band = baseline +/- 0.5 SD), resting HR drift, overnight stress and sleep breathing rate against the same baseline, sleep versus usual with sleep debt and bedtime regularity, and an illness watch that combines them (it works without HRV). Reports how many of the last 7 nights have HRV; with fewer than 5 the verdict is capped. Use for 'is my HRV trending down?', 'am I getting sick?', 'how is my recovery?', 'is my sleep regular?'.",
       inputSchema: { date: dateArg.optional().describe("Last day of the 7-day window. Default: today") },
       annotations: READ,
     },
@@ -328,7 +518,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "Weekly report",
       description:
-        "Week-by-week summary (Monday to Sunday): training volume and load by sport, intensity split from HR zones, longest session, sleep, HRV, resting HR, stress, steps, and change versus the previous week.",
+        "Week-by-week summary (Monday to Sunday): training volume and load by sport, session types (intervals, long, tempo, steady...), intensity split from HR zones, longest session, records set that week (all-time or 12-month bests), strength sets, sleep, HRV, resting HR, stress, steps, and change versus the previous week.",
       inputSchema: {
         weeks: z.number().int().min(1).max(26).default(4),
         end_date: dateArg.optional().describe("Any day in the last week to include. Default: today"),
@@ -361,12 +551,13 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "List activities",
       description:
-        "Activities in a date range, newest first, one compact line each (distance, duration, pace or speed, HR, power, elevation, Garmin load, training effect, VO2 max). Use the id with analyze_activity.",
+        "Activities in a date range, newest first, one compact line each (workout type or rep structure, distance, duration, pace or speed, HR, power, elevation, Garmin load, training effect, VO2 max, strength sets, swim pace). Use the id with analyze_activity or compare_workouts.",
       inputSchema: {
         start_date: dateArg.optional().describe("Default: 30 days before end_date"),
         end_date: dateArg.optional(),
         sport: z.enum(["running", "cycling", "swimming", "walking", "hiking", "strength", "rowing_paddling", "winter", "mind_body", "other"]).optional(),
         type: z.string().max(60).optional().describe("Exact Garmin type key, e.g. trail_running, indoor_cycling"),
+        workout: z.enum(["intervals", "long", "tempo", "steady", "recovery", "variable"]).optional().describe("Session type from the FIT analysis, e.g. only interval sessions"),
         search: z.string().max(100).optional().describe("Text to find in the activity name"),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
@@ -375,7 +566,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     },
     run(
       deps,
-      async (ctx, a: { start_date?: string; end_date?: string; sport?: string; type?: string; search?: string; limit: number; offset: number }) => {
+      async (ctx, a: { start_date?: string; end_date?: string; sport?: string; type?: string; workout?: string; search?: string; limit: number; offset: number }) => {
         const [start, end] = resolveRange(ctx, a.start_date, a.end_date, 30, 366 * 25);
         await ensureActivities(ctx, start, end);
         const { facts } = await loadProfile(ctx);
@@ -384,6 +575,10 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
         if (a.sport) {
           where.push("sport = ?");
           binds.push(a.sport);
+        }
+        if (a.workout) {
+          where.push("workout_type = ?");
+          binds.push(a.workout);
         }
         if (a.type) {
           where.push("type = ?");
@@ -421,10 +616,15 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "Analyze activity",
       description:
-        "Deep analysis of one activity from its original FIT file: summary, splits, laps, HR zone time, best efforts (fastest 1k/5k/10k..., power curve 5s-60min), aerobic decoupling and cardiac drift, efficiency factor, NP/IF/TSS, and metrics Garmin hides from the API (VO2 max, performance condition). Omit activity_id for the latest activity.",
+        "Deep analysis of one activity from its original FIT file. workout names the session type; an interval session gets its reps (structure such as '10 x 1000 m', each rep's time, pace, HR and rest, HR drop in the rests, fade and consistency) instead of kilometre splits. Also: summary, HR zone time, best efforts (fastest 200 m to marathon, power curve 5s-60min) with records flagging all-time and 12-month bests, aerobic decoupling and efficiency (steady efforts only; grade-adjusted on hilly runs), running form, strength sets, NP/IF/TSS, and metrics Garmin hides from the API (VO2 max, performance condition). Heart rate is cleaned of sensor spikes. Lists come as columns plus rows. Omit activity_id for the latest activity.",
       inputSchema: {
         activity_id: z.number().int().positive().optional().describe("From list_activities. Default: the latest activity"),
         sport: z.enum(["running", "cycling", "swimming", "walking", "hiking", "strength", "other"]).optional().describe("With no id: the latest activity of this sport"),
+        sections: z
+          .array(z.enum(ACTIVITY_SECTIONS))
+          .min(1)
+          .optional()
+          .describe("Only these parts. Default: all except laps, and except splits for an interval session"),
         samples: z.number().int().min(0).max(1000).default(0).describe("Evenly spaced data points to include (time, distance, HR, speed, power, altitude)"),
         include_route: z.boolean().default(false).describe("Include GPS coordinates in samples. Off by default for privacy"),
         split_unit: z.enum(["km", "mi"]).optional().describe("Default: the Garmin profile's unit"),
@@ -432,7 +632,11 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       },
       annotations: READ,
     },
-    run(deps, activityData),
+    run(deps, async (ctx, a: Parameters<typeof activityData>[1] & { sections?: ActivitySection[] }) => {
+      const res = await activityData(ctx, a);
+      const shown = presentActivity(res.data, a.sections);
+      return { data: shown.data, notes: [...(res.notes ?? []), ...shown.notes] };
+    }),
   );
 
   server.registerTool(
@@ -440,7 +644,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     {
       title: "Personal records",
       description:
-        "Best efforts across history from decoded FIT files: fastest 400m to marathon (running), 10-100 km (cycling), swim distances, and best average power for 5s-60min. Also longest and biggest activities. Records cover activities whose FIT files are imported; the background sync imports them over time, and import_missing speeds that up.",
+        "Best efforts across history from decoded FIT files: fastest 200 m to marathon (running, including the track distances 800 m, 1500 m and 3 km), 10-100 km (cycling), swim distances, best average power for 5s-60min, and the highest heart rate held for 5, 20 and 60 minutes. Also longest and biggest activities. Records cover activities whose FIT files are imported; the background sync imports them over time, and import_missing speeds that up.",
       inputSchema: {
         sport: z.enum(["running", "cycling", "swimming", "walking", "hiking"]).default("running"),
         start_date: dateArg.optional().describe("Default: all history"),
@@ -523,13 +727,14 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
     "get_profile",
     {
       title: "Get profile",
-      description: "Athlete profile facts: units, time zone, age, VO2 max (running/cycling), lactate threshold, max and resting HR used for zones, FTP, and HR zone floors per sport.",
+      description:
+        "Athlete profile facts: units, time zone, age, VO2 max (running/cycling), lactate threshold, max and resting HR used for zones, FTP, and HR zone floors per sport. Values Garmin's profile leaves out (resting HR, weight) are filled from the archive and named in sources. zone_check compares the max and threshold HR settings with the highest heart rates in the activity files; use it for 'are my zones right?'.",
       inputSchema: { refresh: z.boolean().default(false).describe("Fetch from Garmin instead of the daily cache") },
       annotations: READ,
     },
     run(deps, async (ctx, a: { refresh: boolean }) => {
       const profile = await loadProfile(ctx, a.refresh ? 0 : 24);
-      return { data: { facts: profile.facts, time_zone_in_use: ctx.timeZone, today: ctx.today } };
+      return { data: { facts: profile.facts, zone_check: zoneCheck(profile.facts, profile.derived), time_zone_in_use: ctx.timeZone, today: ctx.today } };
     }),
   );
 
@@ -621,7 +826,8 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
         .all<{ dataset: string; days_with_data: number; first: string; last: string }>();
       const acts = await ctx.db
         .prepare(
-          `SELECT COUNT(*) AS total, MIN(date) AS first, MAX(date) AS last, SUM(fit_status = 'done') AS fit_done, SUM(${FIT_PENDING}) AS fit_pending, SUM(fit_status IN ('error', 'missing') OR (fit_status IS NULL AND NOT (${FIT_PENDING}))) AS fit_failed FROM activities`,
+          // fit_pending counts new files and files waiting to be analyzed again by a newer version (fit_reanalysis_pending).
+          `SELECT COUNT(*) AS total, MIN(date) AS first, MAX(date) AS last, SUM(fit_status = 'done') AS fit_done, SUM(${FIT_PENDING}) AS fit_pending, SUM(fit_status = 'done' AND (${FIT_PENDING})) AS fit_reanalysis_pending, SUM(fit_status IN ('error', 'missing') OR (fit_status IS NULL AND NOT (${FIT_PENDING}))) AS fit_failed FROM activities`,
         )
         .first();
       const vo2 = await ctx.db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE fit_vo2max IS NOT NULL`).first<{ n: number }>();
@@ -633,6 +839,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
           time_zone: ctx.timeZone,
           plan: env.PLAN?.trim() || "free",
           checks,
+          fit_analysis_version: FIT_ANALYSIS_VERSION,
           archive: { daily: coverage.results, activities: acts, fit_files_with_hidden_vo2max: vo2?.n ?? 0 },
           backfill: backfill ?? "not started (runs every 10 minutes)",
           last_background_run: lastCron ?? "none yet",

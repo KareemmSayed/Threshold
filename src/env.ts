@@ -53,5 +53,5 @@ export function limitsFor(env: Env): Limits {
 
 export const MIN_ACCESS_KEY_LENGTH = 16;
 export const SERVER_NAME = "threshold";
-export const SERVER_VERSION = "0.1.1";
+export const SERVER_VERSION = "1.0.0";
 export const REPO_URL = "https://github.com/KareemmSayed/Threshold";

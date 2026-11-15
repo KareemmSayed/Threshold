@@ -22,8 +22,18 @@ const TODAY_MAX_AGE_MS = 15 * 60_000;
 const RECENT_MAX_AGE_MS = 3 * 3600_000;
 const OLDEST_DATE = "2006-01-01";
 const MAX_FIT_ATTEMPTS = 3;
-/** SQL condition for activities whose FIT file still needs importing. */
-export const FIT_PENDING = `fit_status IS NULL AND COALESCE(fit_attempts, 0) < ${MAX_FIT_ATTEMPTS}`;
+/**
+ * Version of the FIT analysis (src/fit/analyze.ts). Raise it when the analysis gains or
+ * changes archived results: files decoded by an older version are then analyzed again in
+ * the background, newest first, with no migration.
+ *   1: best efforts, decoupling, hidden VO2 max
+ *   2: intervals and session type, cleaned heart rate, track distances, HR peaks, device, grade-adjusted pace
+ */
+export const FIT_ANALYSIS_VERSION = 2;
+/** SQL condition for a FIT file analyzed by the current version. */
+export const FIT_CURRENT = `fit_status = 'done' AND COALESCE(fit_version, 1) >= ${FIT_ANALYSIS_VERSION}`;
+/** SQL condition for activities whose FIT file still needs importing, or analyzing again. */
+export const FIT_PENDING = `COALESCE(fit_attempts, 0) < ${MAX_FIT_ATTEMPTS} AND (fit_status IS NULL OR (fit_status = 'done' AND COALESCE(fit_version, 1) < ${FIT_ANALYSIS_VERSION}))`;
 
 export interface SyncOutcome {
   /** True when everything asked for is now in the archive. */
@@ -184,6 +194,9 @@ export async function importFit(ctx: AppContext, activityId: number): Promise<Fi
     }
     const missing = err instanceof GarminError && err.status === 404;
     result = { status: missing ? "missing" : "error", error: err instanceof Error ? err.message : String(err) };
+    // A file that decoded before keeps its earlier results; the failed attempt stays counted.
+    const prior = await ctx.db.prepare(`SELECT fit_status FROM activities WHERE activity_id = ?`).bind(activityId).first<{ fit_status: string | null }>();
+    if (prior?.fit_status === "done") return result;
   }
   await storeFitResult(ctx, activityId, result);
   return result;
@@ -191,19 +204,37 @@ export async function importFit(ctx: AppContext, activityId: number): Promise<Fi
 
 async function storeFitResult(ctx: AppContext, activityId: number, result: FitImportResult): Promise<void> {
   const a = result.analysis;
+  const f = a?.archive;
   const statements: D1PreparedStatement[] = [
     ctx.db
       .prepare(
-        `UPDATE activities SET fit_status = ?, fit_vo2max = ?, fit_recovery_min = ?, fit_performance_condition = ?, decoupling_pct = ?, efficiency_factor = ?, fit_np_w = ?, fit_json = ?, updated_at = ? WHERE activity_id = ?`,
+        // A decoded file gets its attempts back, so a later analysis version can read it again.
+        `UPDATE activities SET fit_status = ?, fit_version = ?, fit_attempts = CASE WHEN ? = 'done' THEN 0 ELSE fit_attempts END,
+  fit_vo2max = ?, fit_recovery_min = ?, fit_performance_condition = ?, decoupling_pct = ?, efficiency_factor = ?, fit_np_w = ?,
+  workout_type = ?, workout_structure = ?, rep_count = ?, rep_distance_m = ?, rep_time_s = ?, work_speed_mps = ?, work_hr = ?, rest_s = ?,
+  fit_max_hr = ?, avg_temp_c = ?, device = ?, fit_json = ?, updated_at = ? WHERE activity_id = ?`,
       )
       .bind(
         result.status,
-        a?.archive.vo2max ?? null,
-        a?.archive.recovery ?? null,
-        a?.archive.performance_condition ?? null,
-        a?.archive.decoupling_pct ?? null,
-        a?.archive.efficiency_factor ?? null,
-        a?.archive.np ?? null,
+        a ? FIT_ANALYSIS_VERSION : null,
+        result.status,
+        f?.vo2max ?? null,
+        f?.recovery ?? null,
+        f?.performance_condition ?? null,
+        f?.decoupling_pct ?? null,
+        f?.efficiency_factor ?? null,
+        f?.np ?? null,
+        f?.workout_type ?? null,
+        f?.workout_structure ?? null,
+        f?.rep_count ?? null,
+        f?.rep_distance_m ?? null,
+        f?.rep_time_s ?? null,
+        f?.work_speed_mps ?? null,
+        f?.work_hr ?? null,
+        f?.rest_s ?? null,
+        f?.max_hr ?? null,
+        f?.avg_temp_c ?? null,
+        f?.device ?? null,
         a ? JSON.stringify({ ...a, samples: undefined, archive: undefined }) : result.error ? JSON.stringify({ error: result.error }) : null,
         ctx.now,
         activityId,

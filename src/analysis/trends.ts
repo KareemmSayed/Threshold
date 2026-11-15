@@ -1,6 +1,7 @@
 /** Trend statistics for any daily metric, with comparison to the previous period. */
 import type { ActivityRow, DailyRow } from "../archive/store";
 import type { ProfileFacts } from "../context";
+import { STEADY_TYPES } from "../fit/intervals";
 import { addDays, daysBetween, eachDate, weekStart } from "../util/dates";
 import { activityLoad } from "./load";
 import { finite, linearTrend, mean, median, pctChange, round, sd, sum } from "./stats";
@@ -22,6 +23,20 @@ const d = (key: string, scale = 1): DailyFn => (r) => (finite(r[key] as number) 
 const acts = (per: ActivityAgg["per"]): ActivityAgg => ({ from: "activities", per });
 const sport = (s: string) => (as: ActivityRow[]) => as.filter((a) => a.sport === s);
 const km = (as: ActivityRow[]) => (as.length ? sum(as.map((a) => a.distance_m)) / 1000 : null);
+/** One sustained effort, as named by the FIT analysis. Sessions not analyzed yet are left out. */
+const steady = (a: ActivityRow) => a.workout_type !== null && STEADY_TYPES.has(a.workout_type);
+/** A local "YYYY-MM-DDTHH:MM" time as hours after `originHour`, wrapped into one day. */
+const clockHours = (key: string, originHour: number): DailyFn => (r) => {
+  const m = typeof r[key] === "string" ? /T(\d{2}):(\d{2})/.exec(r[key] as string) : null;
+  return m ? (Number(m[1]) + Number(m[2]) / 60 - originHour + 24) % 24 : null;
+};
+/** Distance-weighted pace in min/km. */
+const paceOf = (runs: ActivityRow[]) => {
+  const timed = runs.filter((a) => (a.distance_m ?? 0) > 500 && (a.moving_s ?? a.duration_s));
+  const m = sum(timed.map((a) => a.distance_m));
+  const s = sum(timed.map((a) => a.moving_s ?? a.duration_s));
+  return m > 0 ? s / 60 / (m / 1000) : null;
+};
 
 export const METRICS: Record<string, Metric> = {
   resting_hr: { unit: "bpm", description: "Resting heart rate", better: "lower", combine: "mean", source: d("resting_hr") },
@@ -53,15 +68,17 @@ export const METRICS: Record<string, Metric> = {
   swimming_km: { unit: "km", description: "Swimming distance", combine: "sum", source: acts((as) => km(sport("swimming")(as)) ?? 0) },
   running_pace: {
     unit: "min/km",
-    description: "Average running pace (distance-weighted)",
+    description: "Average running pace over every run (distance-weighted; interval sessions include their rests)",
     better: "lower",
     combine: "mean",
-    source: acts((as) => {
-      const runs = sport("running")(as).filter((a) => (a.distance_m ?? 0) > 500 && (a.moving_s ?? a.duration_s));
-      const m = sum(runs.map((a) => a.distance_m));
-      const s = sum(runs.map((a) => a.moving_s ?? a.duration_s));
-      return m > 0 ? s / 60 / (m / 1000) : null;
-    }),
+    source: acts((as) => paceOf(sport("running")(as))),
+  },
+  steady_run_pace: {
+    unit: "min/km",
+    description: "Pace of steady runs only (easy, long, tempo, recovery; no interval sessions)",
+    better: "lower",
+    combine: "mean",
+    source: acts((as) => paceOf(sport("running")(as).filter(steady))),
   },
   vo2max: {
     unit: "ml/kg/min",
@@ -75,19 +92,86 @@ export const METRICS: Record<string, Metric> = {
   },
   running_efficiency: {
     unit: "m/min per bpm",
-    description: "Running efficiency factor (speed per heartbeat; higher = fitter at the same effort)",
+    description: "Running efficiency factor on steady runs (speed per heartbeat; higher = fitter at the same effort)",
     better: "higher",
     combine: "mean",
-    source: acts((as) => mean(sport("running")(as).map((a) => a.efficiency_factor))),
+    source: acts((as) => mean(sport("running")(as).filter(steady).map((a) => a.efficiency_factor))),
   },
   aerobic_decoupling: {
     unit: "%",
-    description: "Aerobic decoupling on long efforts (lower = better durability)",
+    description: "Aerobic decoupling on steady efforts of 45 minutes or more (lower = better durability)",
     better: "lower",
     combine: "mean",
-    source: acts((as) => mean(as.filter((a) => (a.duration_s ?? 0) >= 45 * 60).map((a) => a.decoupling_pct))),
+    source: acts((as) => mean(as.filter((a) => steady(a) && (a.duration_s ?? 0) >= 45 * 60).map((a) => a.decoupling_pct))),
+  },
+  sleep_stress: { unit: "0-100", description: "Stress during sleep", better: "lower", combine: "mean", source: d("sleep_stress") },
+  sleep_respiration: { unit: "brpm", description: "Breathing rate during sleep", combine: "mean", source: d("sleep_respiration") },
+  awake_min: { unit: "min", description: "Time awake during the night", better: "lower", combine: "mean", source: d("awake_seconds", 1 / 60) },
+  bedtime: { unit: "h after 12:00", description: "Bedtime as hours after noon (11 = 23:00, 13 = 01:00)", combine: "mean", source: clockHours("sleep_start_local", 12) },
+  wake_time: { unit: "h after 00:00", description: "Wake time as hours after midnight", combine: "mean", source: clockHours("sleep_end_local", 0) },
+  body_battery_charged: { unit: "points", description: "Body Battery gained during the day's rest and sleep", better: "higher", combine: "mean", source: d("body_battery_charged") },
+  hard_minutes: {
+    unit: "min",
+    description: "Training time in HR zones 4 and 5",
+    combine: "sum",
+    source: acts((as) => sum(as.map((a) => (a.hr_zone4_s ?? 0) + (a.hr_zone5_s ?? 0))) / 60),
+  },
+  training_end_hour: {
+    unit: "h after 00:00",
+    description: "Clock hour the day's last workout ended (for 'does late training hurt my sleep')",
+    combine: "mean",
+    source: acts((as) => {
+      const ends = as
+        .map((a) => {
+          const m = a.start_local ? /[T ](\d{2}):(\d{2})/.exec(a.start_local) : null;
+          return m ? Number(m[1]) + Number(m[2]) / 60 + (a.duration_s ?? 0) / 3600 : null;
+        })
+        .filter(finite);
+      return ends.length ? Math.max(...ends) : null;
+    }),
+  },
+  running_cadence: { unit: "spm", description: "Running cadence", combine: "mean", source: acts((as) => mean(sport("running")(as).filter(steady).map((a) => a.avg_cadence))) },
+  stride_length: { unit: "m", description: "Running stride length", combine: "mean", source: acts((as) => mean(sport("running")(as).map((a) => a.stride_length_m))) },
+  ground_contact: { unit: "ms", description: "Running ground contact time", better: "lower", combine: "mean", source: acts((as) => mean(sport("running")(as).map((a) => a.ground_contact_ms))) },
+  vertical_ratio: { unit: "%", description: "Running vertical ratio (bounce per stride length)", better: "lower", combine: "mean", source: acts((as) => mean(sport("running")(as).map((a) => a.vertical_ratio_pct))) },
+  strength_sets: { unit: "sets", description: "Strength training sets", combine: "sum", source: acts((as) => sum(as.map((a) => a.total_sets))) },
+  swim_swolf: { unit: "swolf", description: "Swim efficiency score (seconds plus strokes per length; lower = more efficient)", better: "lower", combine: "mean", source: acts((as) => mean(sport("swimming")(as).map((a) => a.swolf))) },
+  swim_pace: {
+    unit: "s/100m",
+    description: "Swimming pace per 100 m (distance-weighted)",
+    better: "lower",
+    combine: "mean",
+    source: acts((as) => {
+      const swims = sport("swimming")(as).filter((a) => (a.distance_m ?? 0) > 50 && (a.moving_s ?? a.duration_s));
+      const m = sum(swims.map((a) => a.distance_m));
+      return m > 0 ? sum(swims.map((a) => a.moving_s ?? a.duration_s)) / (m / 100) : null;
+    }),
   },
 };
+
+/** The dataset each daily metric reads, when it is not the daily summary. */
+export const DATASET_FOR_METRIC: Record<string, "hrv" | "sleep" | "weight"> = {
+  hrv: "hrv",
+  sleep_hours: "sleep",
+  sleep_score: "sleep",
+  deep_sleep_min: "sleep",
+  rem_sleep_min: "sleep",
+  sleep_stress: "sleep",
+  sleep_respiration: "sleep",
+  awake_min: "sleep",
+  bedtime: "sleep",
+  wake_time: "sleep",
+  weight_kg: "weight",
+  body_fat_pct: "weight",
+};
+
+/** True when a metric is computed from activities, false when from the daily table. */
+export const fromActivities = (name: string) => typeof METRICS[name].source !== "function";
+
+/** One value per day for a metric. Sum metrics count rest days as zero; mean metrics leave them empty. */
+export function metricSeries(name: string, rows: DailyRow[], activities: ActivityRow[], facts: ProfileFacts, start: string, end: string): Array<[string, number | null]> {
+  return series(METRICS[name], rows, activities, facts, start, end);
+}
 
 export type Granularity = "day" | "week" | "month";
 

@@ -636,7 +636,7 @@
     const rows = [
       [P(pad(' YOUR AI', W1 + 2), 'hd'), sp(G), P(pad(' YOUR CLOUDFLARE ACCOUNT · FREE', W2 + 2), 'hd'), sp(G), P(pad(' GARMIN', W3 + 2), 'hd')],
       [top(W1), sp(G), top(W2), sp(G), top(W3)],
-      [V, P(pad(' "How am I today?"', W1), 'tx'), V, P(pad('  OAuth', G), 'lb'), V, P(' /mcp', 'tx'), P(pad('   16 tools · 4 prompts', W2 - 5), 'lb'), V, P(pad(' API key', G), 'lb'), V, P(pad(' Personal API', W3), 'tx'), V],
+      [V, P(pad(' "How am I today?"', W1), 'tx'), V, P(pad('  OAuth', G), 'lb'), V, P(' /mcp', 'tx'), P(pad('   23 tools · 5 prompts', W2 - 5), 'lb'), V, P(pad(' API key', G), 'lb'), V, P(pad(' Personal API', W3), 'tx'), V],
       [V, sp(W1), V, P('────────▶', 'req1'), V, P('  ├─ ', 'lb'), P('analysis', 'tx'), P(pad('  load · HRV · ready', W2 - 13), 'lb'), V, P('────────▶', 'req2'), V, P(pad(' read-only', W3), 'lb'), V],
       [V, P(pad(' Claude · ChatGPT', W1), 'lb'), V, P('◀────────', 'res1'), V, P('  ├─ ', 'lb'), P('FIT decoder', 'tx'), P(pad('  VO2 max · PRs', W2 - 16), 'lb'), V, P('◀────────', 'res2'), V, sp(W3), V],
       [V, P(pad(' Cursor · Codex · …', W1), 'lb'), V, P(pad(' numbers', G), 'lb'), V, P('  └─ ', 'lb'), P('D1 archive', 'tx'), P(' '), P('◀──', 'cron'), P(pad(' cron /10 min', W2 - 19), 'lb'), V, P(pad('  data', G), 'lb'), V, P(pad(' 24 h token', W3), 'lb'), V],

@@ -2,7 +2,7 @@
  * A fake Garmin Personal API with deterministic data for any date, Garmin's
  * payload shapes, and Garmin's range limits (400 when a range is too long).
  */
-import { syntheticActivity, zipped } from "./fit-writer";
+import { INTENSITY, syntheticActivity, TRIGGER, zipped, type LapSpec } from "./fit-writer";
 
 const DAY_MS = 86_400_000;
 const LIMITS: Record<string, number> = { dailysummaries: 180, sleep: 28, hrv: 180, stress: 7, steps: 7, bodyBattery: 28, weight: 31, hydration: 28 };
@@ -14,6 +14,63 @@ export interface MockOptions {
   rateLimited?: boolean;
   /** Reject the API key. */
   badKey?: boolean;
+  /** A date with no sleep and no HRV record: the watch has not synced that night yet. */
+  nightNotSynced?: string;
+  /** A date with an extra track session of 6 x 600 m, run as a structured workout. */
+  intervalSession?: string;
+  /** A date with an extra strength session. */
+  strengthSession?: string;
+}
+
+/** Ids of the extra sessions: far from the dated ids, and from each other. */
+export const intervalSessionId = (date: string) => 30_000_000_000 + Math.round(Date.parse(date) / DAY_MS);
+export const strengthSessionId = (date: string) => 40_000_000_000 + Math.round(Date.parse(date) / DAY_MS);
+
+const REP_S = 158; // 600 m at 3.8 m/s
+const REST_S = 90;
+const WARMUP_S = 600;
+const COOLDOWN_S = 300;
+const REPS = 6;
+
+/**
+ * A structured track workout as Garmin records it: a warm-up, six 600 m reps that the watch
+ * auto-laps at 400 m, 90 s rests, and a cool-down. Slower than the steady runs' best efforts,
+ * so it never changes the records the other tests check.
+ */
+export function intervalFit(start: number): Uint8Array {
+  const repStart = (i: number) => WARMUP_S + i * (REP_S + REST_S);
+  const total = repStart(REPS - 1) + REP_S + COOLDOWN_S;
+  const phase = (t: number): { kind: "warmup" | "rep" | "rest" | "cooldown"; into: number } => {
+    if (t < WARMUP_S) return { kind: "warmup", into: t };
+    const since = t - WARMUP_S;
+    const i = Math.floor(since / (REP_S + REST_S));
+    const into = since - i * (REP_S + REST_S);
+    if (i >= REPS || (i === REPS - 1 && into >= REP_S)) return { kind: "cooldown", into: t - (repStart(REPS - 1) + REP_S) };
+    return into < REP_S ? { kind: "rep", into } : { kind: "rest", into: into - REP_S };
+  };
+  const laps: LapSpec[] = [{ from: 0, to: WARMUP_S, intensity: INTENSITY.warmup, trigger: TRIGGER.manual, step: 0 }];
+  for (let i = 0; i < REPS; i++) {
+    const s = repStart(i);
+    // 400 m takes 105 s at 3.8 m/s; the watch laps there, inside the same workout step.
+    laps.push({ from: s, to: s + 105, intensity: INTENSITY.active, trigger: TRIGGER.distance, step: 1 });
+    laps.push({ from: s + 105, to: s + REP_S, intensity: INTENSITY.active, trigger: TRIGGER.distance, step: 1 });
+    if (i < REPS - 1) laps.push({ from: s + REP_S, to: s + REP_S + REST_S, intensity: INTENSITY.rest, trigger: TRIGGER.manual, step: 2 });
+  }
+  laps.push({ from: total - COOLDOWN_S, to: total, intensity: INTENSITY.cooldown, trigger: TRIGGER.sessionEnd, step: 3 });
+  return syntheticActivity({
+    start,
+    seconds: total,
+    speed: (t) => ({ warmup: 2.8, rep: 3.8, rest: 1.2, cooldown: 2.6 })[phase(t).kind],
+    hr: (t) => {
+      const p = phase(t);
+      if (p.kind === "rep") return 140 + (35 * p.into) / REP_S;
+      if (p.kind === "rest") return 175 - (35 * p.into) / REST_S;
+      return p.kind === "warmup" ? 130 + (10 * p.into) / WARMUP_S : 175 - Math.min(45, p.into / 2);
+    },
+    laps,
+    ascent: 0,
+    altitude: () => 100,
+  });
 }
 
 export interface MockGarmin {
@@ -77,6 +134,66 @@ function activity(date: string) {
     hrTimeInZone_5: 0,
     trainingEffectLabel: "AEROBIC_BASE",
     ownerFullName: "Should Be Stripped",
+    eventType: { typeId: 9, typeKey: "uncategorized" },
+    // Running dynamics as Garmin lists them: stride and oscillation in centimetres.
+    ...(running ? { averageRunningCadenceInStepsPerMinute: 172, avgStrideLength: 118.4, avgGroundContactTime: 245, avgVerticalOscillation: 8.9, avgVerticalRatio: 7.5 } : {}),
+  };
+}
+
+function intervalActivity(date: string) {
+  return {
+    activityId: intervalSessionId(date),
+    activityName: "Track Running",
+    startTimeLocal: `${date} 18:00:00`,
+    startTimeGMT: `${date} 16:00:00`,
+    activityType: { typeKey: "track_running", typeId: 8 },
+    eventType: { typeId: 9, typeKey: "uncategorized" },
+    distance: 5900,
+    duration: 2298,
+    movingDuration: 2200,
+    elapsedDuration: 2298,
+    elevationGain: 0,
+    averageSpeed: 2.57,
+    averageHR: 150,
+    maxHR: 176,
+    calories: 380,
+    aerobicTrainingEffect: 3.4,
+    anaerobicTrainingEffect: 2.6,
+    activityTrainingLoad: 150,
+    hrTimeInZone_1: 400,
+    hrTimeInZone_2: 500,
+    hrTimeInZone_3: 500,
+    hrTimeInZone_4: 600,
+    hrTimeInZone_5: 200,
+    trainingEffectLabel: "VO2MAX",
+    lapCount: 19,
+  };
+}
+
+function strengthActivity(date: string) {
+  return {
+    activityId: strengthSessionId(date),
+    activityName: "Strength",
+    startTimeLocal: `${date} 12:00:00`,
+    startTimeGMT: `${date} 10:00:00`,
+    activityType: { typeKey: "strength_training", typeId: 13 },
+    eventType: { typeId: 9, typeKey: "uncategorized" },
+    distance: 0,
+    duration: 2400,
+    movingDuration: 1500,
+    averageSpeed: 0,
+    averageHR: 105,
+    maxHR: 140,
+    calories: 210,
+    activityTrainingLoad: 25,
+    totalSets: 6,
+    activeSets: 5,
+    totalReps: 62,
+    // Garmin stores weights in grams.
+    summarizedExerciseSets: [
+      { category: "SQUAT", reps: 30, volume: 1_800_000, duration: 240000, sets: 3, maxWeight: 60000 },
+      { category: "PUSH_UP", reps: 32, volume: 0, duration: 180000, sets: 2, maxWeight: 0 },
+    ],
   };
 }
 
@@ -132,10 +249,12 @@ export function createMockGarmin(opts: MockOptions = {}): MockGarmin {
         sleepScores: { overall: { value: Math.round(70 + rand(d, 6) * 20) } },
         avgHeartRate: 50,
         averageRespirationValue: 13.5,
-        sleepStartTimestampLocal: Date.parse(`${d}T00:00:00Z`) - 2 * 3600_000,
+        avgSleepStress: Math.round(15 + rand(d, 14) * 6),
+        // Bedtime between 21:40 and 22:20 the evening before.
+        sleepStartTimestampLocal: Date.parse(`${d}T00:00:00Z`) - 2 * 3600_000 + Math.round((rand(d, 15) - 0.5) * 40) * 60_000,
         sleepEndTimestampLocal: Date.parse(`${d}T06:30:00Z`),
       }));
-      return r instanceof Response ? r : json(r);
+      return r instanceof Response ? r : json(r.filter((n) => (n as { calendarDate: string }).calendarDate !== opts.nightNotSynced));
     }
     if ((m = path.match(/^\/hrv-service\/hrv\/daily\/(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/))) {
       const r = range("hrv", m[1], m[2], (d) => ({
@@ -146,7 +265,7 @@ export function createMockGarmin(opts: MockOptions = {}): MockGarmin {
         baseline: { balancedLow: 55, balancedUpper: 72 },
         status: "BALANCED",
       }));
-      return r instanceof Response ? r : json({ hrvSummaries: r, userProfilePk: 1 });
+      return r instanceof Response ? r : json({ hrvSummaries: r.filter((n) => (n as { calendarDate: string }).calendarDate !== opts.nightNotSynced), userProfilePk: 1 });
     }
     if ((m = path.match(/^\/weight-service\/weight\/range\/(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/))) {
       const r = range("weight", m[1], m[2], (d) => ({ summaryDate: d, latestWeight: { weight: 72000 + Math.round(rand(d, 8) * 1000), bmi: 22.1, bodyFat: 14.5 } }));
@@ -162,11 +281,21 @@ export function createMockGarmin(opts: MockOptions = {}): MockGarmin {
       if (limit > 60) return new Response("", { status: 500 });
       const s = q.get("startDate") ?? historyStart;
       const e = q.get("endDate") ?? iso(Date.now());
-      const all = dates(s < historyStart ? historyStart : s, e)
-        .filter((d) => Math.round(Date.parse(d) / DAY_MS) % 2 === 0)
+      const all: unknown[] = dates(s < historyStart ? historyStart : s, e)
         .reverse()
-        .map(activity);
+        .flatMap((d) => [
+          ...(d === opts.intervalSession ? [intervalActivity(d)] : []),
+          ...(d === opts.strengthSession ? [strengthActivity(d)] : []),
+          ...(Math.round(Date.parse(d) / DAY_MS) % 2 === 0 ? [activity(d)] : []),
+        ]);
       return json(all.slice(start, start + limit));
+    }
+    if ((m = path.match(/^\/download-service\/files\/activity\/(\d+)$/)) && Number(m[1]) >= 40_000_000_000) {
+      return new Response("no file", { status: 404 });
+    }
+    if ((m = path.match(/^\/download-service\/files\/activity\/(\d+)$/)) && Number(m[1]) >= 30_000_000_000) {
+      const date = iso((Number(m[1]) - 30_000_000_000) * DAY_MS);
+      return new Response(await zipped(intervalFit(Date.parse(`${date}T16:00:00Z`) / 1000), `${m[1]}_ACTIVITY.fit`), { headers: { "Content-Type": "application/zip" } });
     }
     if ((m = path.match(/^\/download-service\/files\/activity\/(\d+)$/))) {
       const day = Number(m[1]) - 20_000_000_000;

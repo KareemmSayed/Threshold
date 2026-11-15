@@ -1,10 +1,12 @@
 /** Week-by-week report: training volume, intensity, recovery, and changes week over week. */
 import type { ActivityRow, DailyRow } from "../archive/store";
 import type { ProfileFacts } from "../context";
+import { formatDuration } from "../fit/analyze";
 import { addDays, isoWeek, weekStart } from "../util/dates";
 import { activityLoad } from "./load";
 import { mean, pctChange, round } from "./stats";
 
+/** A best effort with the best value recorded before it, all-time and within the 12 months before. */
 export interface BestEffortRow {
   activity_id: number;
   date: string;
@@ -12,6 +14,26 @@ export interface BestEffortRow {
   effort: string;
   kind: string;
   value: number;
+  /** Efforts of this kind recorded on earlier days. */
+  prior?: number | null;
+  best_before?: number | null;
+  prior_12mo?: number | null;
+  best_before_12mo?: number | null;
+}
+
+/** A record needs this many earlier efforts to beat; the first few of anything are not records. */
+const MIN_PRIOR_EFFORTS = 3;
+
+/**
+ * "all-time" when the effort beats everything recorded before it, "12-month" when it beats
+ * the previous twelve months, else null. Time efforts are better when lower, power when higher.
+ */
+export function recordScope(e: BestEffortRow): "all-time" | "12-month" | null {
+  if (e.kind !== "time_s" && e.kind !== "power_w") return null;
+  const beats = (best: number | null | undefined) => typeof best === "number" && (e.kind === "time_s" ? e.value < best : e.value > best);
+  if ((e.prior ?? 0) >= MIN_PRIOR_EFFORTS && beats(e.best_before)) return "all-time";
+  if ((e.prior_12mo ?? 0) >= MIN_PRIOR_EFFORTS && beats(e.best_before_12mo)) return "12-month";
+  return null;
 }
 
 export function weeklyReport(rows: DailyRow[], activities: ActivityRow[], efforts: BestEffortRow[], facts: ProfileFacts, firstWeek: string, lastDate: string) {
@@ -21,11 +43,12 @@ export function weeklyReport(rows: DailyRow[], activities: ActivityRow[], effort
     const we = addDays(ws, 6);
     const days = rows.filter((r) => r.date >= ws && r.date <= we);
     const acts = activities.filter((a) => a.date && a.date >= ws && a.date <= we);
-    const sports: Record<string, { activities: number; km: number; hours: number; elevation_m: number; load: number }> = {};
+    const sports: Record<string, { activities: number; km: number; hours: number; elevation_m: number; load: number; sets?: number; reps?: number }> = {};
     let load = 0;
     let seconds = 0;
     let meters = 0;
     const zones = [0, 0, 0, 0, 0];
+    const sessions: Record<string, number> = {};
     for (const a of acts) {
       const l = activityLoad(a, facts).load;
       const s = (sports[a.sport] ??= { activities: 0, km: 0, hours: 0, elevation_m: 0, load: 0 });
@@ -34,6 +57,9 @@ export function weeklyReport(rows: DailyRow[], activities: ActivityRow[], effort
       s.hours += (a.duration_s ?? 0) / 3600;
       s.elevation_m += a.elevation_gain_m ?? 0;
       s.load += l;
+      if (a.total_sets) s.sets = (s.sets ?? 0) + a.total_sets;
+      if (a.total_reps) s.reps = (s.reps ?? 0) + a.total_reps;
+      if (a.workout_type && a.workout_type !== "other") sessions[a.workout_type] = (sessions[a.workout_type] ?? 0) + 1;
       load += l;
       seconds += a.duration_s ?? 0;
       meters += a.distance_m ?? 0;
@@ -70,13 +96,16 @@ export function weeklyReport(rows: DailyRow[], activities: ActivityRow[], effort
               }
             : null,
         longest: longest ? { id: longest.activity_id, name: longest.name, hours: round((longest.duration_s ?? 0) / 3600, 2), km: round((longest.distance_m ?? 0) / 1000, 1) } : null,
-        best_efforts: efforts.filter((e) => e.date >= ws && e.date <= we).length || undefined,
+        // Session types from the FIT analysis: intervals, long, tempo, steady, recovery, variable.
+        sessions: Object.keys(sessions).length ? sessions : undefined,
+        records: records(efforts.filter((e) => e.date >= ws && e.date <= we)),
       },
       recovery: {
         sleep_hours: sleepAvg !== null ? round(sleepAvg / 3600, 2) : null,
         sleep_score: avg("sleep_score", 0),
         hrv_ms: avg("hrv_ms"),
         resting_hr: avg("resting_hr"),
+        sleep_stress: avg("sleep_stress", 0),
         stress_avg: avg("stress_avg", 0),
         body_battery_high: avg("body_battery_high", 0),
         steps: avg("steps", 0),
@@ -96,6 +125,27 @@ export function weeklyReport(rows: DailyRow[], activities: ActivityRow[], effort
     notes: [
       "Intensity uses Garmin's time in HR zones per activity; 80/20 (about 80% easy) is the common target for endurance athletes.",
       "Load week-over-week jumps above ~30% raise injury risk for most athletes.",
+      "records lists best efforts that beat everything before them (all-time) or the twelve months before (12-month), once there are three earlier efforts to beat.",
     ],
   };
+}
+
+/** The records among one week's efforts, best scope first. */
+function records(efforts: BestEffortRow[]) {
+  const out: Array<Record<string, unknown>> = [];
+  for (const e of efforts) {
+    const scope = recordScope(e);
+    if (!scope) continue;
+    const previous = scope === "all-time" ? e.best_before : e.best_before_12mo;
+    out.push({
+      effort: e.effort,
+      sport: e.sport,
+      record: scope,
+      ...(e.kind === "power_w" ? { watts: e.value, previous_watts: previous } : { time: formatDuration(e.value), previous: typeof previous === "number" ? formatDuration(previous) : null }),
+      date: e.date,
+      activity_id: e.activity_id,
+    });
+  }
+  out.sort((a, b) => (a.record === b.record ? 0 : a.record === "all-time" ? -1 : 1));
+  return out.length ? out : undefined;
 }

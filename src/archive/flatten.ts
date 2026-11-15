@@ -196,7 +196,20 @@ export function sportOf(typeKey: string | null | undefined): string {
   return "other";
 }
 
-export const ACTIVITY_COLUMNS = [
+/** First finite number above zero. For fields where Garmin writes 0 to mean "not measured". */
+export function positive(obj: unknown, ...paths: string[]): number | null {
+  for (const p of paths) {
+    const v = num(obj, p);
+    if (v !== null && v > 0) return v;
+  }
+  return null;
+}
+
+/**
+ * Columns of the first schema version. Migration 1 builds the table from this list,
+ * so it is frozen: add new columns to ACTIVITY_COLUMNS_ADDED and to a new migration.
+ */
+export const ACTIVITY_COLUMNS_V1 = [
   "activity_id",
   "name",
   "type",
@@ -235,6 +248,26 @@ export const ACTIVITY_COLUMNS = [
   "training_effect_label",
   "raw_json",
 ] as const;
+
+/** Columns added by later migrations (see MIGRATIONS in schema.ts), also read from the activity list. */
+export const ACTIVITY_COLUMNS_ADDED = [
+  "event_type",
+  "stride_length_m",
+  "ground_contact_ms",
+  "vertical_oscillation_cm",
+  "vertical_ratio_pct",
+  "total_sets",
+  "total_reps",
+  "swolf",
+  "pool_length_m",
+  "active_lengths",
+  "strokes",
+] as const;
+
+export const ACTIVITY_COLUMNS = [...ACTIVITY_COLUMNS_V1, ...ACTIVITY_COLUMNS_ADDED] as const;
+
+/** Garmin stores some lengths in centimetres (stride 121.8, pool 2500); tolerate metres. */
+const fromCm = (v: number | null, largestMetres: number) => (v === null ? null : round(v > largestMetres ? v / 100 : v, 2));
 
 /** One row of the `activities` table from an activity-list item. */
 export function flattenActivity(a: unknown): Row | null {
@@ -280,5 +313,44 @@ export function flattenActivity(a: unknown): Row | null {
     avg_respiration: num(a, "avgRespirationRate"),
     training_effect_label: text(a, "trainingEffectLabel"),
     raw_json: JSON.stringify(a),
+    event_type: text(a, "eventType.typeKey", "eventTypeDTO.typeKey"),
+    stride_length_m: fromCm(positive(a, "avgStrideLength"), 5),
+    ground_contact_ms: positive(a, "avgGroundContactTime"),
+    vertical_oscillation_cm: positive(a, "avgVerticalOscillation"),
+    vertical_ratio_pct: positive(a, "avgVerticalRatio"),
+    total_sets: positive(a, "activeSets", "totalSets"),
+    total_reps: positive(a, "totalReps"),
+    swolf: positive(a, "averageSwolf"),
+    pool_length_m: fromCm(positive(a, "poolLength"), 200),
+    active_lengths: positive(a, "activeLengths"),
+    strokes: positive(a, "strokes"),
   };
+}
+
+export interface ExerciseSet {
+  exercise: string;
+  sets: number | null;
+  reps: number | null;
+  max_weight_kg: number | null;
+  volume_kg: number | null;
+}
+
+/** Strength exercises from an activity-list item. Garmin stores weights in grams. */
+export function exerciseSets(a: unknown): ExerciseSet[] {
+  const list = at(a, "summarizedExerciseSets");
+  if (!Array.isArray(list)) return [];
+  const out: ExerciseSet[] = [];
+  for (const item of list) {
+    const category = text(item, "category");
+    if (!category) continue;
+    const kg = (v: number | null) => (v === null ? null : round(v / 1000, 1));
+    out.push({
+      exercise: category.toLowerCase(),
+      sets: positive(item, "sets"),
+      reps: positive(item, "reps"),
+      max_weight_kg: kg(positive(item, "maxWeight")),
+      volume_kg: kg(positive(item, "volume")),
+    });
+  }
+  return out;
 }
