@@ -12,6 +12,7 @@ import { REPO_URL, SERVER_NAME, SERVER_VERSION, type Env } from "../env";
 import type { GarminClientOptions } from "../garmin/client";
 import { isValidTimeZone, todayIn } from "../util/dates";
 import { registerView } from "../view/tool";
+import { registerCoachTools } from "./coach";
 import { registerPrompts } from "./prompts";
 import { registerTools } from "./tools";
 
@@ -24,7 +25,8 @@ async function instructions(env: Env): Promise<string> {
   }
   return [
     `Threshold serves the user's own Garmin data and analysis of it. Today is ${todayIn(tz)} in the athlete's time zone (${tz}); date arguments also accept 'today' and 'yesterday'.`,
-    "Pick the analysis tools first: daily_briefing (readiness today), recovery_analysis (HRV, resting HR, sleep vs baseline), training_load (CTL/ATL/TSB, ACWR), weekly_report, metric_trend (any metric over time), analyze_activity (one workout from its FIT file), personal_records (best efforts).",
+    "Pick the analysis tools first: daily_briefing (readiness today), recovery_analysis (HRV, resting HR, sleep, overnight stress, illness watch), training_load (CTL/ATL/TSB, ACWR), training_status (is training working, load focus), weekly_report, metric_trend (any metric over time), analyze_activity (one workout from its FIT file, with the reps of an interval session), compare_workouts (the same workout over time), personal_records (best efforts).",
+    "For anything about the future or about cause, use the tool, never your own estimate: race_predictor (race times, training paces, FTP), load_forecast (form on race day, tapers), correlate (does X go with Y). race_calendar holds the athlete's target races: add one when they mention a race.",
     "Use list_activities to find activity ids, get_health_data / get_day_detail for Garmin's raw records, and query_archive for custom SQL over the archive.",
     "To show results visually, call show_view after the analysis tool: the matching preset with only the sections the user asked about, or custom blocks for anything else. Answer a single number in text without a card.",
     "The server computes every number. Quote and explain them; do not recompute. Missing data is null, never zero. This is training guidance from wearable data, not medical advice.",
@@ -38,6 +40,7 @@ export function buildServer(env: Env, instructionsText: string | undefined, orig
     { capabilities: { tools: {}, prompts: {}, resources: {} }, instructions: instructionsText },
   );
   registerTools(server, { env, garminOptions });
+  registerCoachTools(server, { env, garminOptions });
   registerView(server, { env, garminOptions }, origin);
   registerPrompts(server);
   return server;

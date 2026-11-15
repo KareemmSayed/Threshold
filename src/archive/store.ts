@@ -106,9 +106,36 @@ export interface ActivityRow {
   fit_performance_condition: number | null;
   decoupling_pct: number | null;
   efficiency_factor: number | null;
+  start_gmt: string | null;
+  event_type: string | null;
+  avg_cadence: number | null;
+  stride_length_m: number | null;
+  ground_contact_ms: number | null;
+  vertical_oscillation_cm: number | null;
+  vertical_ratio_pct: number | null;
+  total_sets: number | null;
+  total_reps: number | null;
+  swolf: number | null;
+  pool_length_m: number | null;
+  fit_version: number | null;
+  /** intervals | long | tempo | steady | recovery | variable | other; null until the FIT file is analyzed. */
+  workout_type: string | null;
+  workout_structure: string | null;
+  rep_count: number | null;
+  rep_distance_m: number | null;
+  rep_time_s: number | null;
+  work_speed_mps: number | null;
+  work_hr: number | null;
+  rest_s: number | null;
+  fit_max_hr: number | null;
+  avg_temp_c: number | null;
+  device: string | null;
 }
 
-const ACTIVITY_SELECT = `activity_id, name, type, sport, date, start_local, distance_m, duration_s, moving_s, elevation_gain_m, avg_speed_mps, avg_hr, max_hr, avg_power_w, norm_power_w, calories, aerobic_te, anaerobic_te, garmin_load, tss, vo2max, hr_zone1_s, hr_zone2_s, hr_zone3_s, hr_zone4_s, hr_zone5_s, training_effect_label, fit_status, fit_vo2max, fit_recovery_min, fit_performance_condition, decoupling_pct, efficiency_factor`;
+const ACTIVITY_SELECT = `activity_id, name, type, sport, date, start_local, distance_m, duration_s, moving_s, elevation_gain_m, avg_speed_mps, avg_hr, max_hr, avg_power_w, norm_power_w, calories, aerobic_te, anaerobic_te, garmin_load, tss, vo2max, hr_zone1_s, hr_zone2_s, hr_zone3_s, hr_zone4_s, hr_zone5_s, training_effect_label, fit_status, fit_vo2max, fit_recovery_min, fit_performance_condition, decoupling_pct, efficiency_factor, start_gmt, event_type, avg_cadence, stride_length_m, ground_contact_ms, vertical_oscillation_cm, vertical_ratio_pct, total_sets, total_reps, swolf, pool_length_m, fit_version, workout_type, workout_structure, rep_count, rep_distance_m, rep_time_s, work_speed_mps, work_hr, rest_s, fit_max_hr, avg_temp_c, device`;
+
+/** The `activities` columns every analysis reads, for queries that select rows themselves. */
+export const ACTIVITY_FIELDS = ACTIVITY_SELECT;
 
 export async function readActivities(db: D1Database, start: string, end: string): Promise<ActivityRow[]> {
   const { results } = await db

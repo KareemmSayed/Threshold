@@ -11,13 +11,13 @@ An open-source Garmin MCP server on the official Garmin Personal API. It answers
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/KareemmSayed/Threshold)
 
-[Website](https://kareemmsayed.github.io/Threshold/) · [Quick start](#quick-start-5-minutes) · [Connect your AI](#connect-your-ai) · [FAQ](#faq)
+[Website](https://kareemmsayed.github.io/Threshold/) · [Quick start](#quick-start-5-minutes) · [Connect your AI](#connect-your-ai) · [FAQ](#faq) · [Changelog](CHANGELOG.md)
 
 <img src="docs/og.png" alt="Threshold, a Garmin MCP server for Claude, ChatGPT and any AI assistant" width="720">
 
 </div>
 
-> *"Am I recovered enough for intervals today?"* · *"Is my HRV trending down?"* · *"Am I ramping up too fast?"* · *"Break down this morning's run."* · *"What are my 5k and 10k bests this year?"* · *"Which months did I climb the most?"*
+> *"Am I recovered enough for intervals today?"* · *"Is my HRV trending down?"* · *"Am I ramping up too fast?"* · *"How even were my 10 x 1000 m, and am I faster than last time?"* · *"What can I run for 10k?"* · *"What will my form be on race day if I taper?"* · *"Does late training hurt my sleep?"*
 
 **Threshold is a self-hosted [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that connects Garmin Connect to AI assistants.** It runs on your own free Cloudflare account and talks to Garmin's official **Personal API** with your own key. No password, no scraping, no third-party service in between. It works with Claude (web, desktop, iOS, Android), ChatGPT, Claude Code, Cursor, VS Code, Codex, Gemini CLI, Windsurf and any MCP client.
 
@@ -28,8 +28,11 @@ Other Garmin MCP servers hand the model raw JSON and hope it does the math. Thre
 | | Typical Garmin MCP | **Threshold** |
 | --- | --- | --- |
 | Readiness, training load (CTL/ATL/TSB, ACWR), HRV baseline | model guesses from raw JSON | **computed in code**, rules shown |
+| Interval sessions | averaged into kilometre splits | **rep by rep**: time, pace, heart rate, rest, fade |
+| Race predictions, training paces, taper forecast | model guesses | **computed** from your best efforts and load |
 | Aerobic decoupling, cardiac drift, best efforts, power curve | no | **from the original FIT file** |
 | VO2 max and performance condition hidden from the API | no | **decoded from the FIT file** |
+| Watches and accounts without HRV | no recovery signal | **overnight stress and breathing rate** on a baseline |
 | Full-history archive with SQL | no | **D1 archive, read-only SQL tool** |
 | Works on your phone (Claude / ChatGPT mobile) | rarely | **OAuth built in** |
 | Hosting | your laptop must stay on | **Cloudflare free tier, one click** |
@@ -40,20 +43,26 @@ Other Garmin MCP servers hand the model raw JSON and hope it does the math. Thre
 
 | Tool | Answers |
 | --- | --- |
-| `daily_briefing` | "How am I today?" HRV, resting HR, sleep, Body Battery, form and load ramp against *your* 60-day baselines, with a green / amber / red call and the rule behind it. |
-| `recovery_analysis` | HRV on a personal baseline (ln of Garmin's overnight HRV average, 7-day rolling mean, normal band = baseline ± 0.5 SD), resting-HR drift, sleep versus usual. Shows how many of the last 7 nights have HRV. |
+| `daily_briefing` | "How am I today?" HRV, resting HR, sleep, overnight stress, sleep breathing rate, Body Battery, form and load ramp against *your* 60-day baselines, with a green / amber / red call and the rule behind it. Works without HRV, says when last night has not synced yet, watches for the pattern of an illness, and counts down to your next race. |
+| `recovery_analysis` | HRV on a personal baseline (ln of Garmin's overnight HRV average, 7-day rolling mean, normal band = baseline ± 0.5 SD), resting-HR drift, overnight stress and sleep breathing rate, sleep versus usual with sleep debt and bedtime regularity, and an illness watch. Shows how many of the last 7 nights have HRV. |
 | `training_load` | Fitness (CTL), fatigue (ATL), form (TSB), acute:chronic ratio, monotony, strain, weekly load, load by sport. |
-| `weekly_report` | Week-by-week volume, load, intensity split (80/20?), sleep, HRV, resting HR, and change versus last week. |
-| `metric_trend` | Any metric over time (HRV, resting HR, sleep, weight, VO2 max, running pace, efficiency...), slope, min/max, and comparison with the previous period. |
-| `analyze_activity` | One workout from its FIT file: splits, laps, HR zones, best efforts, decoupling and drift, NP/IF/TSS, efficiency factor, hidden VO2 max. |
-| `personal_records` | Fastest 400 m to marathon, 10–100 km rides, swim bests, power curve 5 s–60 min, longest and hilliest sessions. |
-| `list_activities` | Activities by date, sport, type or name, one compact line each. |
+| `training_status` | "Is my training working?" Productive, maintaining, peaking, recovery, unproductive, overreaching or detraining, from load and the VO2 max trend. Plus load focus: how the last four weeks split between low aerobic, high aerobic and anaerobic work, and what is short. |
+| `weekly_report` | Week-by-week volume, load, session types, intensity split (80/20?), records set that week, sleep, HRV, resting HR, and change versus last week. |
+| `metric_trend` | Any metric over time (HRV, resting HR, sleep, bedtime, weight, VO2 max, running pace, efficiency, stride length...), slope, min/max, and comparison with the previous period. |
+| `analyze_activity` | One workout from its FIT file. An interval session comes back as reps (structure such as `10 x 1000 m`, each rep's time, pace and heart rate, the rests, fade and consistency) instead of kilometre splits. Also HR zones, best efforts with all-time and 12-month records flagged, decoupling and drift on steady efforts (grade-adjusted on hilly runs), running form, strength sets, NP/IF/TSS, hidden VO2 max. |
+| `compare_workouts` | "Am I faster than last time?" One workout against earlier sessions of the same kind: the same reps, or steady efforts of the same length. Pace, heart rate and speed per heartbeat, with the trend. |
+| `personal_records` | Fastest 200 m to marathon (with the track distances 800 m, 1500 m and 3 km), 10–100 km rides, swim bests, power curve 5 s–60 min, heart-rate peaks, longest and hilliest sessions. |
+| `race_predictor` | "What can I run for 10k?" Race times from 1500 m to the marathon with a range and confidence, training paces (easy, marathon, threshold, interval, repetition) and critical speed, from your recent best efforts. For cycling: FTP estimate, critical power, W' and power zones. |
+| `load_forecast` | "What will my form be on race day?" Fitness, fatigue and form projected to a date if you train as usual, taper or rest, with your own planned days on top, and the load that lands on a target form. |
+| `correlate` | "Does late training hurt my sleep?" How two daily metrics move together, with a lag, a confidence interval and the sample size. |
+| `race_calendar` | Your target races, kept in your own archive. The briefing counts down to the next one, the predictor shows the gap to its goal, and the forecast aims at its date. |
+| `list_activities` | Activities by date, sport, type, session type or name, one compact line each. |
 | `query_archive` | Read-only SQL over your whole history, for everything else. |
-| `get_health_data`, `get_day_detail`, `get_activity`, `get_profile` | Garmin's own records, compacted: sleep stages, HRV readings, heart rate, SpO2, stress, Body Battery, weight, hydration, nutrition, menstrual cycle, fitness age. |
+| `get_health_data`, `get_day_detail`, `get_activity`, `get_profile` | Garmin's own records, compacted: sleep stages, HRV readings, heart rate, SpO2, stress, Body Battery, weight, hydration, nutrition, menstrual cycle, fitness age. `get_profile` also checks your max and threshold HR settings against the heart rates in your activity files. |
 | `sync_now`, `server_status`, `garmin_api_get` | Pull fresh data now, health checks and archive coverage, and raw access to any Personal API path. |
 | `show_view` | Shows the answer as a card in this project's design, inside the chat in apps that support [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) (Claude, ChatGPT, VS Code, Goose) and as a private link everywhere else. Presets build the card from the analysis tools, so the server supplies every number; custom blocks cover any other question. |
 
-Clients that support MCP prompts also get **morning check-in**, **weekly review**, **analyze last workout** and **race readiness**.
+Clients that support MCP prompts also get **morning check-in**, **weekly review**, **analyze last workout**, **workout progress** and **race readiness**.
 
 ## Quick start (5 minutes)
 
@@ -215,7 +224,7 @@ Anything else: Threshold speaks the standard **Streamable HTTP** transport with 
 ```
  Claude, ChatGPT, Cursor, ...                 Cloudflare Workers (your account)                     Garmin
 ┌──────────────────────────┐  OAuth or     ┌─────────────────────────────────────────┐   API key ┌──────────────┐
-│ "How am I today?"        │──bearer key──▶│  /mcp   17 tools, 4 prompts             │──────────▶│ Personal API │
+│ "How am I today?"        │──bearer key──▶│  /mcp   23 tools, 5 prompts             │──────────▶│ Personal API │
 └──────────────────────────┘               │   ├─ analysis: load, HRV, readiness...  │  24 h     │  (read-only) │
                                            │   ├─ FIT decoder: hidden VO2 max, PRs   │  token    └──────────────┘
                                            │   └─ D1 archive ◀── cron every 10 min   │◀──────────────┘
@@ -225,6 +234,8 @@ Anything else: Threshold speaks the standard **Streamable HTTP** transport with 
 * **Archive first.** Tools read from a D1 (SQLite) archive and fetch only missing or recent days from Garmin, split to Garmin's range limits. Recent days are re-checked because watches sync late.
 * **Background sync.** Every 10 minutes the cron job refreshes recent days, walks back through your history a little at a time, and decodes FIT files, newest first. Each run stays inside the Workers request and CPU limits, and backs off when Garmin rate-limits the key.
 * **Fast FIT decoder.** A small decoder written for Workers reads a one-hour activity in about a millisecond, 20× faster than Garmin's JavaScript SDK, which is what makes FIT analysis possible on the free tier.
+* **Sessions read as what they were.** The analysis finds the reps of an interval session (from the laps of a structured workout, laps pressed by hand, or the speed stream) and names every session: intervals, long, tempo, steady, recovery or variable. Decoupling and efficiency are computed for steady efforts only, and heart rate is cleaned of sensor spikes first.
+* **The future is computed too.** Race predictions come from your best efforts (VDOT, Riegel, critical speed), and the load forecast runs the same fitness and fatigue arithmetic forward over your own weekday pattern. The model explains them; it does not estimate them.
 * **Cards, not walls of text.** `show_view` ships its own HTML (an MCP Apps `ui://` resource), so every assistant shows the same design without installing anything. The model only picks a preset and the sections the user asked about, or fills fixed block types; it never writes HTML. Apps without MCP Apps support get a private link to the same card.
 * **Hidden metrics.** Garmin writes VO2 max and performance condition into the FIT file's undocumented message 140 but leaves them out of the API. Threshold decodes them (VO2 max = field 7 × 3.5 / 65536, confirmed by the community) and labels anything less certain as experimental. If Garmin strips that data from API downloads, the tool says so.
 
@@ -241,7 +252,7 @@ Yes. One person's data is small.
 | KV: 1,000 writes / day | A few per day (Garmin token, OAuth) |
 | 5 cron triggers | 1 |
 
-The first backfill of a long history takes a few hours to a few days on Free, and FIT files import one per run. On the [Workers Paid plan](https://developers.cloudflare.com/workers/platform/pricing/) ($5/month) set `PLAN` to `paid` and it does everything 5–20× faster.
+The first backfill of a long history takes a few hours to a few days on Free, and FIT files import one per run. The same goes for an upgrade that improves the FIT analysis: old files are analyzed again in the background, newest first (see the [changelog](CHANGELOG.md)). On the [Workers Paid plan](https://developers.cloudflare.com/workers/platform/pricing/) ($5/month) set `PLAN` to `paid` and it does everything 5–20× faster.
 
 ## Configuration
 
@@ -253,7 +264,7 @@ The first backfill of a long history takes a few hours to a few days on Free, an
 | `TIMEZONE` | var | Garmin profile, else UTC | IANA zone used for "today". |
 | `GARMIN_KEY_EXPIRES` | var | – | `YYYY-MM-DD`; tools warn 14 days before. |
 | `BACKFILL_FROM` | var | as far as Garmin answers | Oldest date to archive. |
-| `HRV_BASELINE_FROM` | var | – | `YYYY-MM-DD`; HRV baselines ignore earlier nights. Set it when you change watch. |
+| `HRV_BASELINE_FROM` | var | found in your activity files | `YYYY-MM-DD`; HRV baselines ignore earlier nights. A change of watch is noticed by itself; set this to override it. |
 | `SYNC_FIT_FILES` | var | `true` | `false` skips FIT downloads in the background. |
 | `PUBLIC_URL` | var | request origin | Pin the OAuth origin when you use a custom domain. |
 | `VIEW_LINK_HOURS` | var | `24` | How long `show_view` private links work (max 720). `0` turns links off. |
@@ -266,7 +277,7 @@ Set any of these in the Cloudflare dashboard: **Workers & Pages → threshold �
 
 * **Single user, your account.** Garmin's terms make the Personal API key personal. Threshold is built for one person on their own Cloudflare account; there is no hosted service and your data never passes through this project.
 * **The Garmin key never leaves the Worker.** It is exchanged for a 24-hour token, cached in your KV namespace.
-* **Read-only.** The Personal API cannot change your Garmin account, and the SQL tool refuses anything but `SELECT`.
+* **Read-only.** The Personal API cannot change your Garmin account, and the SQL tool refuses anything but `SELECT`. The only things the tools write are in your own archive: synced data, and the races you put in the race calendar.
 * **Only you can connect apps.** The OAuth consent page asks for your access key, shows where tokens will be sent, and warns about local apps. Tokens are bound to your server's `/mcp` URL.
 * **Less exposure to cloud models.** GPS coordinates, place names and personal identifiers are removed from responses unless you ask for them.
 * **Private links expire.** A `show_view` link is a random 192-bit token (only its hash is stored), opens one card, expires after `VIEW_LINK_HOURS`, and stops working when you change the access key. Anyone you send it to can see that card, so share it like any private link. Cards built from presets never include GPS data or activity names.
@@ -282,13 +293,17 @@ See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## Limits worth knowing
 
-* Garmin's Personal API does not expose Training Readiness, Training Status or race predictions. Threshold computes its own readiness and load with transparent rules instead.
-* Message-140 fields other than VO2 max are community-decoded and labelled experimental.
-* HRV comes from Garmin's nightly HRV summary in the Personal API. Some accounts and devices return none. HRV signals then show no data and the briefing skips them.
+* Garmin's Personal API does not expose Training Readiness, Training Status, Load Focus or race predictions. Threshold computes its own versions with transparent rules; they are not Garmin's algorithms and will not match the watch.
+* Message-140 fields other than VO2 max are community-decoded and labelled experimental. That includes the recovery-time countdown in the briefing, which is shown but never counted in the call.
+* HRV comes from Garmin's nightly HRV summary in the Personal API. Some accounts and devices return none. The briefing then relies on resting HR, sleep, overnight stress and sleep breathing rate.
 * Threshold uses Garmin's overnight HRV average. It does not compute rMSSD from beat-to-beat intervals and cannot check Garmin's method.
-* HRV from different devices is not comparable, and Threshold cannot see a device change. Set `HRV_BASELINE_FROM` to the first night on the new watch; verdicts return after about three weeks (14 baseline nights plus the current week).
+* HRV from different devices is not comparable. A change of watch is noticed from the model named in your activity files and restarts the baseline (rides are ignored, and the new watch needs three activities); `HRV_BASELINE_FROM` overrides it. Verdicts return after about three weeks (14 baseline nights plus the current week).
 * With fewer than 5 of the last 7 nights, an HRV verdict is capped at "slightly low" or "slightly high". Every HRV result shows its night count.
-* The readiness and recovery rules are transparent heuristics. They are not validated against performance or recovery outcomes. The tests prove the code applies the rules, and the FIT decoder test proves parsing matches Garmin's SDK. Neither shows that a call predicts anything.
+* Reps found in the speed stream (no laps to mark them) have boundaries accurate to a few seconds, and only regular reps are recognized: a ladder or a fartlek without laps is reported as a variable session.
+* Race predictions assume the best effort behind them was close to all-out. Efforts taken from inside training give predictions slower than your real ability, and a marathon predicted from a 5 km assumes you have done the endurance training.
+* Correlations show that two metrics move together, never that one causes the other.
+* The illness watch reports a pattern in overnight signals. It is not a diagnosis.
+* The readiness, recovery and training-status rules are transparent heuristics. They are not validated against performance or recovery outcomes. The tests prove the code applies the rules, and the FIT decoder test proves parsing matches Garmin's SDK. Neither shows that a call predicts anything.
 * Not medical advice. Consumer wearables estimate; trends matter more than single readings.
 
 ## Development
@@ -306,13 +321,16 @@ Tests run inside the Workers runtime against a fake Garmin API: the FIT decoder 
 src/
   index.ts          Worker entry: HTTP and cron
   auth/             OAuth provider, consent and landing pages
-  mcp/              MCP server, tools, prompts
+  mcp/              MCP server, tools (tools.ts, coach.ts), prompts
   garmin/           API client (token cache, retries, rate limits), endpoints, compaction
-  archive/          D1 schema, archive-first sync, backfill, read-only SQL
-  fit/              FIT decoder and activity analysis
-  analysis/         training load, recovery, readiness, weekly report, trends
+  archive/          D1 schema, archive-first sync, backfill, read-only SQL, race calendar
+  fit/              FIT decoder, activity analysis, interval detection
+  analysis/         training load, recovery, readiness, weekly report, trends,
+                    race prediction, load forecast, training status, correlation, workout comparison
   view/             show_view: card spec, presets, private links; client/ holds the card's CSS and script
 ```
+
+When the FIT analysis starts archiving something new, raise `FIT_ANALYSIS_VERSION` in `src/archive/sync.ts`: files decoded by an older version are then analyzed again in the background.
 
 After editing `src/view/client/`, run `npm run gen:view` to rebuild `src/view/assets.ts`; CI checks that it is up to date.
 
@@ -342,7 +360,13 @@ Yes. You deploy it to your own Cloudflare account; your data never passes throug
 Activities and their original FIT files, daily summaries (steps, calories, intensity minutes, floors), sleep and sleep stages, HRV, resting and all-day heart rate, stress, Body Battery, SpO2, respiration, weight and body composition, hydration, nutrition logs, menstrual cycle, fitness age, heart-rate zones and profile settings.
 
 ### Can it see Training Readiness, Training Status or VO2 max?
-Garmin's Personal API does not return Training Readiness or Training Status, so Threshold computes its own readiness and training load with transparent rules. VO2 max comes from the activity list and is also decoded from each activity's FIT file, where Garmin keeps more precise values.
+Garmin's Personal API does not return Training Readiness, Training Status or race predictions, so Threshold computes its own readiness, training status, load focus and race predictions with transparent rules. VO2 max comes from the activity list and is also decoded from each activity's FIT file, where Garmin keeps more precise values.
+
+### Does it understand interval workouts?
+Yes. A session such as 10 x 1000 m is reported rep by rep (time, pace, heart rate, rest, how far heart rate fell in each rest, fade across the session) instead of as kilometre splits, and `compare_workouts` lines it up with the earlier times you did the same reps.
+
+### My watch has no HRV. Does recovery still work?
+Yes. The briefing and `recovery_analysis` judge resting HR, sleep, overnight stress and sleep breathing rate against your own 60-day baselines, and an illness watch flags when several move together.
 
 ### Can it change anything on my Garmin account?
 No. The Personal API is read-only, and so is Threshold.

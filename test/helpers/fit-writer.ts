@@ -102,6 +102,20 @@ export class FitWriter {
   }
 }
 
+/** FIT `intensity` and `lap_trigger` enum values. */
+export const INTENSITY = { active: 0, rest: 1, warmup: 2, cooldown: 3 } as const;
+export const TRIGGER = { manual: 0, distance: 2, sessionEnd: 7 } as const;
+
+export interface LapSpec {
+  /** Seconds from the start, [from, to). */
+  from: number;
+  to: number;
+  intensity?: number;
+  trigger?: number;
+  /** Workout step index: auto-laps inside one step share it. */
+  step?: number;
+}
+
 export interface RunOptions {
   start: number; // unix seconds
   seconds?: number;
@@ -111,6 +125,16 @@ export interface RunOptions {
   distanceOffset?: (t: number) => number;
   hr?: (t: number) => number;
   power?: (t: number) => number | null;
+  /** Altitude in meters at second t. Default: a gentle 10 m wave. */
+  altitude?: (t: number) => number;
+  /** The session's total ascent in meters. Default 120. */
+  ascent?: number;
+  /** Laps to write instead of the single lap covering the whole activity. */
+  laps?: LapSpec[];
+  /** Write running dynamics (stride, ground contact, vertical oscillation and ratio) into the session. */
+  dynamics?: boolean;
+  /** Garmin product number in file_id. Default 4024. */
+  product?: number;
   vo2max?: number;
   withPhysiology?: boolean;
   /** Use compressed timestamp headers for odd records (Garmin's JS SDK cannot read them). Default true. */
@@ -119,7 +143,7 @@ export interface RunOptions {
 
 /**
  * A synthetic activity: 1 Hz records (half of them with compressed timestamps),
- * a developer field to skip, a lap, a session, zones and message 140.
+ * a developer field to skip, laps, a session, zones and message 140.
  */
 export function syntheticActivity(opts: RunOptions): Uint8Array {
   const seconds = opts.seconds ?? 3600;
@@ -127,6 +151,7 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
   const hr = opts.hr ?? ((t: number) => (t < seconds / 2 ? 145 : 152));
   const power = opts.power ?? (() => null);
   const offset = opts.distanceOffset ?? (() => 0);
+  const altitude = opts.altitude ?? ((t: number) => 100 + 10 * Math.sin(t / 300));
   const w = new FitWriter();
   const t0 = fitTime(opts.start);
   w.define(0, 0, [
@@ -134,7 +159,7 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
     [1, BASE.uint16],
     [2, BASE.uint16],
     [4, BASE.uint32],
-  ]).data(0, [4, 1, 4024, t0]);
+  ]).data(0, [4, 1, opts.product ?? 4024, t0]);
   // zones_target: max HR 190, threshold HR 170, FTP 250
   w.define(1, 7, [
     [1, BASE.uint8],
@@ -155,10 +180,13 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
   w.define(2, 20, [[253, BASE.uint32], ...recordFields], [[0, 1, 0]]);
   w.define(3, 20, recordFields);
   let distance = 0;
+  // Distance covered by the end of each second, for the laps.
+  const covered = new Float64Array(seconds + 1);
   for (let t = 0; t < seconds; t++) {
     const v = speed(t);
     distance += v;
-    const alt = 100 + 10 * Math.sin(t / 300);
+    covered[t + 1] = distance;
+    const alt = altitude(t);
     const p = power(t);
     const pc = t >= 360 ? (t < seconds / 2 ? 2 : -1) : null;
     const values = [Math.round(hr(t)), Math.round((distance + offset(t)) * 100), Math.round(v * 1000), Math.round((alt + 500) * 5), p === null ? null : Math.round(p), 600000000 + t * 1000, 100000000, pc];
@@ -174,9 +202,26 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
     [9, BASE.uint32],
     [15, BASE.uint8],
     [16, BASE.uint8],
+    [23, BASE.enum], // intensity
+    [24, BASE.enum], // lap_trigger
+    [71, BASE.uint16], // wkt_step_index
   ];
-  w.define(4, 19, lapFields).data(4, [end, t0, seconds * 1000, seconds * 1000, Math.round(distance * 100), 148, 160]);
-  w.define(5, 18, [
+  w.define(4, 19, lapFields);
+  if (opts.laps) {
+    for (const lap of opts.laps) {
+      const length = lap.to - lap.from;
+      let beats = 0;
+      let peak = 0;
+      for (let t = lap.from; t < lap.to; t++) {
+        beats += hr(t);
+        peak = Math.max(peak, hr(t));
+      }
+      w.data(4, [t0 + lap.to - 1, t0 + lap.from, length * 1000, length * 1000, Math.round((covered[lap.to] - covered[lap.from]) * 100), Math.round(beats / length), Math.round(peak), lap.intensity ?? INTENSITY.active, lap.trigger ?? TRIGGER.manual, lap.step ?? null]);
+    }
+  } else {
+    w.data(4, [end, t0, seconds * 1000, seconds * 1000, Math.round(distance * 100), 148, 160, INTENSITY.active, TRIGGER.sessionEnd, null]);
+  }
+  const sessionFields: Array<[number, Base, number?]> = [
     [253, BASE.uint32],
     [2, BASE.uint32],
     [5, BASE.enum],
@@ -191,7 +236,14 @@ export function syntheticActivity(opts: RunOptions): Uint8Array {
     [24, BASE.uint8],
     [137, BASE.uint8],
     [110, BASE.string, 16],
-  ]).data(5, [end, t0, opts.sport ?? 1, 0, seconds * 1000, seconds * 1000, Math.round(distance * 100), 148, 160, Math.round((distance / seconds) * 1000), 120, 31, 12, "Run"]);
+  ];
+  const sessionValues: Array<number | string> = [end, t0, opts.sport ?? 1, 0, seconds * 1000, seconds * 1000, Math.round(distance * 100), 148, 160, Math.round((distance / seconds) * 1000), opts.ascent ?? 120, 31, 12, "Run"];
+  if (opts.dynamics) {
+    // vertical oscillation 8.6 cm, ground contact 242 ms, stride 1.18 m, vertical ratio 7.3%
+    sessionFields.push([89, BASE.uint16], [91, BASE.uint16], [134, BASE.uint16], [132, BASE.uint16]);
+    sessionValues.push(860, 2420, 11800, 730);
+  }
+  w.define(5, 18, sessionFields).data(5, sessionValues);
   // time_in_zone for the session: [below z1, z1..z5] seconds * 1000, high boundaries
   w.define(6, 216, [
     [253, BASE.uint32],

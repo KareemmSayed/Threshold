@@ -1,62 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { flattenActivity, flattenDaily, sportOf } from "../../src/archive/flatten";
 import { checkReadOnly, SqlRejected } from "../../src/archive/sql";
-import type { ActivityRow, DailyRow } from "../../src/archive/store";
+import type { DailyRow } from "../../src/archive/store";
 import { activityLoad, acwrLabel, loadReport, loadWarmupStart, performanceChart } from "../../src/analysis/load";
 import { briefing } from "../../src/analysis/readiness";
 import { hrvReport, rhrReport, sleepReport } from "../../src/analysis/recovery";
 import { linearTrend, mean, sd } from "../../src/analysis/stats";
 import { metricTrend } from "../../src/analysis/trends";
 import { weeklyReport } from "../../src/analysis/weekly";
-import { hrvBaselineFrom, profileFacts, type ProfileFacts } from "../../src/context";
+import { hrvBaselineFrom, profileFacts } from "../../src/context";
 import type { Env } from "../../src/env";
 import { compact } from "../../src/garmin/compact";
 import { addDays, eachDate, isIsoDate, isoWeek, runs, todayIn, weekStart, windows } from "../../src/util/dates";
-
-const facts: ProfileFacts = { unit: "km", hrZoneFloors: {}, restingHr: 50, maxHr: 190, gender: "male" };
-
-function days(end: string, n: number, make: (d: string, i: number) => Partial<DailyRow>): DailyRow[] {
-  return eachDate(addDays(end, -(n - 1)), end).map((d, i) => ({ date: d, ...make(d, i) }) as DailyRow);
-}
-
-function act(date: string, load: number, extra: Partial<ActivityRow> = {}): ActivityRow {
-  return {
-    activity_id: Date.parse(date) / 1000,
-    name: "Run",
-    type: "running",
-    sport: "running",
-    date,
-    start_local: `${date} 07:00:00`,
-    distance_m: 10000,
-    duration_s: 3000,
-    moving_s: 3000,
-    elevation_gain_m: 50,
-    avg_speed_mps: 3.33,
-    avg_hr: 145,
-    max_hr: 170,
-    avg_power_w: null,
-    norm_power_w: null,
-    calories: 600,
-    aerobic_te: 3,
-    anaerobic_te: 1,
-    garmin_load: load,
-    tss: null,
-    vo2max: 52,
-    hr_zone1_s: 300,
-    hr_zone2_s: 2000,
-    hr_zone3_s: 500,
-    hr_zone4_s: 200,
-    hr_zone5_s: 0,
-    training_effect_label: "AEROBIC_BASE",
-    fit_status: null,
-    fit_vo2max: null,
-    fit_recovery_min: null,
-    fit_performance_condition: null,
-    decoupling_pct: null,
-    efficiency_factor: null,
-    ...extra,
-  };
-}
+import { act, days, facts } from "../helpers/rows";
 
 describe("dates", () => {
   it("validates and walks dates", () => {

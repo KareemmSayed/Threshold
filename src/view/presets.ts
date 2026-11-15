@@ -13,7 +13,7 @@ import { addDays } from "../util/dates";
 import type { Aura, Block } from "./spec";
 
 export const PRESET_SECTIONS = {
-  activity: ["summary", "pacing", "heart_rate", "zones", "durability", "load", "form", "efforts", "laps"],
+  activity: ["summary", "intervals", "pacing", "heart_rate", "zones", "durability", "load", "form", "efforts", "laps"],
   readiness: ["verdict", "signals", "training", "sleep"],
   training_load: ["summary", "chart", "form", "weekly", "by_sport"],
   records: ["efforts", "longest", "coverage"],
@@ -35,12 +35,15 @@ const DEFAULT_SECTIONS: { [P in PresetName]: Array<Section<P>> } = {
   weekly: ["summary", "table"],
 };
 
+/** An interval session shows its reps: kilometre splits and decoupling would mix reps with rests. */
+const INTERVAL_SECTIONS: Array<Section<"activity">> = ["summary", "intervals", "heart_rate", "load"];
+
 const sections = <P extends PresetName>(name: P) =>
   z
     .array(z.enum(PRESET_SECTIONS[name]))
     .min(1)
     .optional()
-    .describe(`Default: ${DEFAULT_SECTIONS[name].join(", ")}`);
+    .describe(`Default: ${DEFAULT_SECTIONS[name].join(", ")}${name === "activity" ? `; for an interval session ${INTERVAL_SECTIONS.join(", ")}` : ""}`);
 
 /** Keyed by section name; explained in show_view's description. */
 const notes = z.record(z.string(), z.string().max(400)).optional();
@@ -159,9 +162,16 @@ function keep<T>(rows: Array<T | null | false | undefined | 0 | "">): T[] {
 type Builders<P extends PresetName> = { [S in Section<P>]: () => Block[] | null };
 
 /** Run the requested sections in order, attach the model's notes, and record sections without data. */
-function assemble<P extends PresetName>(name: P, requested: Array<Section<P>> | undefined, builders: Builders<P>, modelNotes: Record<string, string> | undefined, out: string[]): Block[] {
+function assemble<P extends PresetName>(
+  name: P,
+  requested: Array<Section<P>> | undefined,
+  builders: Builders<P>,
+  modelNotes: Record<string, string> | undefined,
+  out: string[],
+  defaults: Array<Section<P>> = DEFAULT_SECTIONS[name],
+): Block[] {
   const blocks: Block[] = [];
-  for (const section of requested?.length ? [...new Set(requested)] : DEFAULT_SECTIONS[name]) {
+  for (const section of requested?.length ? [...new Set(requested)] : defaults) {
     const built = builders[section]();
     if (!built?.length) {
       out.push(`No data for the "${section}" section, so it is left out.`);
@@ -228,8 +238,49 @@ async function activityPreset(ctx: AppContext, p: Extract<Preset, { name: "activ
   const full = (s: Obj) => (num(s.distance_km) ?? 0) >= (unit === "km" ? 0.5 : 0.8);
   const avgHr = num(sum.avg_hr) ?? num(act.avg_hr);
   const zones = arr(obj(an.hr_zones).zones).map(obj);
+  const intervals = an.intervals ? obj(an.intervals) : null;
+  const records = new Set(arr(res.data.records).map((r) => str(obj(r).effort)));
 
   const builders: Builders<"activity"> = {
+    intervals: () => {
+      const reps = arr(intervals?.reps).map(obj);
+      if (!intervals || reps.length < 2) return null;
+      const work = obj(intervals.work);
+      const rest = obj(intervals.rest);
+      // Rep times as bars: seconds for same-distance reps, so a faster rep is a shorter bar.
+      const seconds = reps.map((r) => clock(r.time));
+      const slowest = Math.max(...seconds.map((v) => v ?? 0));
+      const paced = reps.some((r) => str(r.pace));
+      const summary = keep([
+        str(work.avg_pace) && `average ${str(work.avg_pace)}`,
+        num(work.avg_speed_kmh) !== null && `average ${num(work.avg_speed_kmh)} km/h`,
+        num(work.avg_hr) !== null && `${num(work.avg_hr)} bpm in the reps`,
+        str(rest.avg) && `${str(rest.avg)} rests`,
+        num(rest.avg_hr_drop_bpm) !== null && `heart rate down ${num(rest.avg_hr_drop_bpm)} bpm in each rest`,
+      ]);
+      return [
+        {
+          type: "table",
+          title: (str(intervals.structure) ?? "Intervals").slice(0, 80),
+          columns: ["Rep", "Time", paced ? "Pace" : "Speed", "Avg HR", "Max HR", "Rest"],
+          bar_after: 1,
+          bar_longer: "lower",
+          rows: reps.slice(0, 40).map((r, i) => ({
+            cells: [
+              num(r.rep) ?? i + 1,
+              str(r.time),
+              paced ? (str(r.pace)?.split("/")[0] ?? null) : withUnit(num(r.speed_kmh), "km/h"),
+              num(r.avg_hr) !== null ? `${num(r.avg_hr)} bpm` : null,
+              num(r.max_hr) !== null ? `${num(r.max_hr)} bpm` : null,
+              str(r.rest),
+            ],
+            bar: seconds[i],
+            highlight: seconds[i] !== null && seconds[i] === slowest && seconds.filter((v) => v === slowest).length === 1,
+          })),
+          note: [summary.length ? `${capitalize(summary.join(", "))}.` : "", str(intervals.verdict) ?? ""].filter(Boolean).join(" ") || undefined,
+        },
+      ];
+    },
     summary: () => {
       const speed = num(sum.avg_speed_kmh) ?? num(act.speed_kmh);
       const vo2 = num(hidden.vo2max) ?? num(act.vo2max);
@@ -313,6 +364,8 @@ async function activityPreset(ctx: AppContext, p: Extract<Preset, { name: "activ
     durability: () => {
       const d = obj(an.durability);
       const ef = num(an.efficiency_factor);
+      // An interval session has no steady effort to measure; say why instead of leaving a gap.
+      if (!an.durability && str(an.durability_note)) return [{ type: "text", title: "Durability", width: "half", body: str(an.durability_note)! }];
       const rows = keep([
         num(d.decoupling_pct) !== null && { label: "Aerobic decoupling", value: `${fixed(num(d.decoupling_pct), 1)}%` },
         num(d.cardiac_drift_pct) !== null && { label: "Cardiac drift", value: `${fixed(num(d.cardiac_drift_pct), 1)}%` },
@@ -340,8 +393,13 @@ async function activityPreset(ctx: AppContext, p: Extract<Preset, { name: "activ
       return rows.length ? [{ type: "kv", title: "Load and effect", width: "half", rows }] : null;
     },
     form: () => {
+      const dynamics = obj(an.form);
       const rows = keep([
         num(sum.avg_cadence) !== null && { label: "Cadence", value: `${Math.round(num(sum.avg_cadence)!)} ${foot ? "spm" : "rpm"}` },
+        num(dynamics.stride_length_m) !== null && { label: "Stride length", value: `${fixed(num(dynamics.stride_length_m), 2)} m` },
+        num(dynamics.ground_contact_ms) !== null && { label: "Ground contact", value: `${num(dynamics.ground_contact_ms)} ms` },
+        num(dynamics.vertical_oscillation_cm) !== null && { label: "Vertical oscillation", value: `${fixed(num(dynamics.vertical_oscillation_cm), 1)} cm` },
+        num(dynamics.vertical_ratio_pct) !== null && { label: "Vertical ratio", value: `${fixed(num(dynamics.vertical_ratio_pct), 1)}%` },
         str(sum.avg_gap_pace) && { label: "Grade-adjusted pace", value: str(sum.avg_gap_pace) },
         num(sum.avg_power_w) !== null && { label: "Average power", value: `${Math.round(num(sum.avg_power_w)!)} W` },
         num(sum.ascent_m) !== null && { label: "Ascent", value: `${Math.round(num(sum.ascent_m)!)} m` },
@@ -352,11 +410,20 @@ async function activityPreset(ctx: AppContext, p: Extract<Preset, { name: "activ
     },
     efforts: () => {
       const be = obj(an.best_efforts);
-      const rows: Array<{ cells: Array<string | number | null> }> = [];
-      for (const [key, e] of Object.entries(obj(be.distance))) rows.push({ cells: [effortLabel(key), str(obj(e).time), str(obj(e).pace)] });
-      for (const [key, w] of Object.entries(obj(be.power_w))) rows.push({ cells: [`${effortLabel(key)} power`, num(w) !== null ? `${Math.round(num(w)!)} W` : null, null] });
+      const rows: Array<{ cells: Array<string | number | null>; highlight?: boolean }> = [];
+      for (const [key, e] of Object.entries(obj(be.distance))) rows.push({ cells: [effortLabel(key), str(obj(e).time), str(obj(e).pace)], highlight: records.has(key) });
+      for (const [key, w] of Object.entries(obj(be.power_w))) rows.push({ cells: [`${effortLabel(key)} power`, num(w) !== null ? `${Math.round(num(w)!)} W` : null, null], highlight: records.has(key) });
       for (const [key, bpm] of Object.entries(obj(be.hr_bpm))) rows.push({ cells: [`${effortLabel(key)} HR`, num(bpm) !== null ? `${Math.round(num(bpm)!)} bpm` : null, null] });
-      return rows.length ? [{ type: "table", title: "Best efforts in this session", columns: ["Effort", "Best", "Pace"], rows }] : null;
+      if (!rows.length) return null;
+      return [
+        {
+          type: "table",
+          title: "Best efforts in this session",
+          columns: ["Effort", "Best", "Pace"],
+          rows,
+          note: rows.some((r) => r.highlight) ? "Highlighted rows rank in your all-time top three, or are the best of the last 12 months." : undefined,
+        },
+      ];
     },
     laps: () => {
       const laps = arr(an.laps).map(obj);
@@ -387,7 +454,7 @@ async function activityPreset(ctx: AppContext, p: Extract<Preset, { name: "activ
     eyebrow: "analyze_activity",
     title: `${humanize(type)} · ${shortDate(act.date ?? str(sum.start)?.slice(0, 10))}`,
     aura: "flame",
-    blocks: assemble("activity", p.sections, builders, p.notes, out),
+    blocks: assemble("activity", p.sections, builders, p.notes, out, intervals ? INTERVAL_SECTIONS : DEFAULT_SECTIONS.activity),
     notes: out,
   };
 }
@@ -404,12 +471,32 @@ async function readinessPreset(ctx: AppContext, p: Extract<Preset, { name: "read
   const status = data.overall.status;
   const tone = status === "green" ? "green" : status === "amber" ? "amber" : status === "red" ? "red" : "muted";
   const t = data.training;
-  const night = data.last_night;
+  // Last night when it has synced, else the most recent night, named by its date.
+  const night = data.last_night ?? data.latest_night;
+  const freshness = data.data_freshness?.note;
+  const next = data.next_event;
 
   const builders: Builders<"readiness"> = {
-    verdict: () => [{ type: "headline", value: `${status.toUpperCase()}.`, text: data.overall.suggestion, tone }],
+    verdict: () => [
+      {
+        type: "headline",
+        value: `${status.toUpperCase()}.`,
+        text: data.overall.suggestion,
+        tone,
+        note: next ? `${next.name}: ${next.days_to_go === 0 ? "today" : `${next.days_to_go} day${next.days_to_go === 1 ? "" : "s"} to go`} (${next.phase}).` : undefined,
+      },
+    ],
     signals: () =>
-      data.signals.length ? [{ type: "signals", rows: data.signals.map((s) => ({ label: s.signal, value: s.reading, status: LEVEL_STATUS[s.level] })) }] : null,
+      data.signals.length
+        ? [
+            {
+              type: "signals",
+              // A stale signal is shown but not judged, so it gets no colour.
+              rows: data.signals.map((s) => ({ label: s.signal, value: s.reading, status: s.stale ? ("neutral" as const) : LEVEL_STATUS[s.level] })),
+              note: freshness ? "Last night has not synced from the watch yet, so sleep and Body Battery are left out of the call." : undefined,
+            },
+          ]
+        : null,
     training: () =>
       t.fitness_ctl === null
         ? null
@@ -434,8 +521,10 @@ async function readinessPreset(ctx: AppContext, p: Extract<Preset, { name: "read
         num(night.rem_min) !== null && { label: "REM", value: `${num(night.rem_min)} min` },
         num(night.light_min) !== null && { label: "Light", value: `${num(night.light_min)} min` },
         num(night.awake_min) !== null && { label: "Awake", value: `${num(night.awake_min)} min` },
+        data.sleep_week.debt_7d_hours !== null && { label: "Sleep debt, 7 days", value: `${fixed(data.sleep_week.debt_7d_hours, 1)} h` },
+        data.sleep_week.avg_bedtime !== null && { label: "Usual bedtime", value: `${data.sleep_week.avg_bedtime} ± ${data.sleep_week.bedtime_sd_min ?? "?"} min` },
       ]);
-      return rows.length ? [{ type: "kv", title: "Last night", rows }] : null;
+      return rows.length ? [{ type: "kv", title: data.last_night ? "Last night" : `Latest night · ${shortDate(night.date, false)}`, rows }] : null;
     },
   };
 
@@ -682,31 +771,44 @@ async function recoveryPreset(ctx: AppContext, p: Extract<Preset, { name: "recov
   const hrv = obj(data.hrv);
   const rhr = obj(data.resting_hr);
   const sleep = obj(data.sleep);
-  const night = obj(sleep.last_night);
+  const lastNight = sleep.last_night ? obj(sleep.last_night) : null;
+  const night = lastNight ?? obj(sleep.latest_night);
   const hrvStatus = str(hrv.status_7d) ?? "no data";
   const range = arr(hrv.normal_range_ms).map(num);
+  const consistency = obj(sleep.consistency);
+  const watch = data.illness_watch;
+  // Overnight stress and breathing rate: a row each, when the archive holds them.
+  const shift = (label: string, r: { status: string; rolling_7d: number | null; delta: number | null }, unit: string) =>
+    r.status !== "no data" && {
+      label,
+      value: `${r.rolling_7d ?? "?"}${unit} · ${signed(r.delta, 1) ?? "?"}`,
+      status: r.status === "elevated" ? ("amber" as const) : ("green" as const),
+    };
 
   const builders: Builders<"recovery"> = {
     status: () => [
       {
         type: "signals",
-        rows: [
+        rows: keep([
           {
             label: "HRV",
             value: hrvStatus === "no data" ? "no data" : `${num(hrv.rolling_7d_ms) ?? "?"} ms · ${hrvStatus}`,
-            status: hrvStatus === "no data" ? "neutral" : hrvStatus === "normal" ? "green" : hrvStatus.includes("low") ? (hrvStatus === "low" ? "red" : "amber") : "blue",
+            status: hrvStatus === "no data" ? ("neutral" as const) : hrvStatus === "normal" ? ("green" as const) : hrvStatus.includes("low") ? (hrvStatus === "low" ? ("red" as const) : ("amber" as const)) : ("blue" as const),
           },
           {
             label: "Resting HR",
             value: num(rhr.rolling_7d_bpm) !== null ? `${num(rhr.rolling_7d_bpm)} bpm · ${signed(num(rhr.delta_bpm), 1) ?? "?"}` : "no data",
-            status: rhr.status === "elevated" ? "amber" : rhr.status === "normal" ? "green" : "neutral",
+            status: rhr.status === "elevated" ? ("amber" as const) : rhr.status === "normal" ? ("green" as const) : ("neutral" as const),
           },
           {
             label: "Sleep",
             value: num(sleep.avg_7d_hours) !== null ? `${num(sleep.avg_7d_hours)} h avg · ${signed(num(sleep.delta_hours), 1) ?? "?"} h` : "no data",
-            status: sleep.status === "low" ? "amber" : sleep.status === "normal" ? "green" : "neutral",
+            status: sleep.status === "low" ? ("amber" as const) : sleep.status === "normal" ? ("green" as const) : ("neutral" as const),
           },
-        ],
+          shift("Overnight stress", data.overnight_stress, ""),
+          shift("Sleep breathing", data.sleep_respiration, " brpm"),
+        ]),
+        note: watch.level === "clear" ? undefined : `Illness watch: ${watch.summary}`,
       },
     ],
     hrv: () => {
@@ -734,11 +836,16 @@ async function recoveryPreset(ctx: AppContext, p: Extract<Preset, { name: "recov
     sleep: () => {
       const hours = num(night.hours);
       const rows = keep([
-        hours !== null && { label: "Last night", value: `${hoursMinutes(hours * 3600)}${num(night.score) !== null ? ` · score ${num(night.score)}` : ""}` },
+        hours !== null && {
+          label: lastNight ? "Last night" : `Latest night · ${shortDate(night.date, false)}`,
+          value: `${hoursMinutes(hours * 3600)}${num(night.score) !== null ? ` · score ${num(night.score)}` : ""}`,
+        },
         num(sleep.avg_7d_hours) !== null && { label: "7-day average", value: `${num(sleep.avg_7d_hours)} h` },
         num(sleep.baseline_hours) !== null && { label: "Usual", value: `${num(sleep.baseline_hours)} h` },
         num(sleep.avg_7d_score) !== null && { label: "Score, 7 days vs usual", value: `${num(sleep.avg_7d_score)} vs ${num(sleep.baseline_score) ?? "—"}` },
         num(sleep.short_nights_last_7) !== null && { label: "Short nights", value: `${num(sleep.short_nights_last_7)} of 7` },
+        num(sleep.sleep_debt_7d_hours) !== null && { label: "Sleep debt, 7 days", value: `${fixed(num(sleep.sleep_debt_7d_hours), 1)} h` },
+        str(consistency.avg_bedtime) && { label: "Bedtime", value: `${str(consistency.avg_bedtime)} ± ${num(consistency.bedtime_sd_min) ?? "?"} min · ${str(consistency.regularity) ?? ""}` },
       ]);
       return rows.length ? [{ type: "kv", title: "Sleep", width: "half", rows }] : null;
     },
